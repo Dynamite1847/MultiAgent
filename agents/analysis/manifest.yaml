@@ -1,0 +1,33 @@
+name: analysis
+display_name: "分析整合"
+description: "对信息进行深度分析、对比、归纳，自动选择最合适的分析框架"
+version: "1.0"
+
+when_to_use: |
+  - 需要对收集的信息进行对比分析
+  - 需要归纳总结、提炼关键洞察
+  - 需要进行 SWOT 分析、竞品对比、趋势判断
+  - 需要从大量信息中提取核心结论
+
+input_schema:
+  content:
+    type: "string"
+    description: "待分析的内容（通常来自前序步骤的输出）"
+    required: false
+  source_steps:
+    type: "list[int]"
+    description: "引用的前序步骤ID列表，系统会自动注入对应输出"
+    required: false
+  requirement:
+    type: "string"
+    description: "分析要求和关注点"
+    required: true
+
+output_schema:
+  analysis:
+    type: "string"
+    description: "结构化分析结论，Markdown格式"
+
+tools_required: []
+
+entry_point: "agents.analysis.agent:AnalysisAgent"

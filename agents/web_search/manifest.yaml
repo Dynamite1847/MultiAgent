@@ -1,0 +1,36 @@
+name: web_search
+display_name: "网络搜索"
+description: "搜索互联网获取实时信息，适用于调研、信息收集、事实核查"
+version: "1.0"
+
+when_to_use: |
+  - 用户需要了解某个产品、公司、技术的最新信息
+  - 需要收集行业数据、竞品信息、用户评价
+  - 需要验证某个事实或获取实时数据
+
+input_schema:
+  queries:
+    type: "list[str]"
+    description: "搜索查询列表，支持多条并行搜索"
+    required: true
+  search_depth:
+    type: "string"
+    enum: ["basic", "advanced"]
+    default: "advanced"
+    description: "搜索深度。basic 适合简单事实查询，advanced 适合深度调研、竞品分析等需要全面信息的场景"
+    required: false
+  max_results:
+    type: "integer"
+    default: 10
+    description: "每个查询返回的最大结果数（1-20）。简单查询可用 5，调研类建议 10-15"
+    required: false
+
+output_schema:
+  results:
+    type: "string"
+    description: "结构化搜索结果，Markdown格式"
+
+tools_required:
+  - tavily_search
+
+entry_point: "agents.web_search.agent:WebSearchAgent"

@@ -1,0 +1,57 @@
+# ════════════════════════════════════════
+# PM Multi-Agent Workbench 配置文件
+# ════════════════════════════════════════
+
+# ────────────────────────────────
+# Provider 定义
+# api_key 存放在 .env 文件中
+# ────────────────────────────────
+providers:
+  anthropic:
+    base_url: https://api.linkapi.ai/v1
+    api_key_env: ANTHROPIC_API_KEY          # 对应 .env 中的变量名
+    json_format_mode: chat_completions      # chat_completions / responses_api / prompt
+    models:
+      - claude-opus-4-6-thinking
+
+  google:
+    base_url: https://api.linkapi.ai/v1
+    api_key_env: GOOGLE_API_KEY
+    json_format_mode: chat_completions
+    models:
+      - gemini-3.1-pro-preview
+
+  openai:
+    base_url: https://api.deepseek.com/v1
+    api_key_env: OPENAI_API_KEY
+    json_format_mode: chat_completions
+    models:
+      - deepseek-reasoner
+
+  doubao:
+    base_url: https://ark.cn-beijing.volces.com/api/v3
+    api_key_env: DOUBAO_API_KEY
+    json_format_mode: responses_api         # 豆包用 Responses API 的 text.format
+    models:
+      - doubao-seed-2-0-pro-260215
+
+# ────────────────────────────────
+# 角色 → 模型 映射
+# 格式: provider/model
+# 改这里来切换各角色使用的模型
+# ────────────────────────────────
+role_models:
+  orchestrator: anthropic/claude-opus-4-6-thinking
+  web_search:   anthropic/claude-opus-4-6-thinking
+  analysis:     anthropic/claude-opus-4-6-thinking
+  writing:      anthropic/claude-opus-4-6-thinking
+  interview:    anthropic/claude-opus-4-6-thinking
+
+# ────────────────────────────────
+# 系统参数
+# ────────────────────────────────
+system:
+  log_level: DEBUG
+  output_dir: ./outputs
+  temperature: 0.7
+  max_tokens: 32768

@@ -1,0 +1,32 @@
+name: writing
+display_name: "文档撰写"
+description: "根据素材和要求生成完整文档，支持PRD、调研报告、竞品分析等各类文档"
+version: "1.0"
+
+when_to_use: |
+  - 需要生成完整的文档（PRD、调研报告、总结等）
+  - 需要将分析结果整理成正式文档
+  - 需要根据多个来源的素材撰写综合文档
+
+input_schema:
+  content:
+    type: "string"
+    description: "文档素材（通常来自前序步骤的输出）"
+    required: false
+  source_steps:
+    type: "list[int]"
+    description: "引用的前序步骤ID列表"
+    required: false
+  doc_requirement:
+    type: "string"
+    description: "文档要求（类型、结构、重点等）"
+    required: true
+
+output_schema:
+  document:
+    type: "string"
+    description: "完整文档，Markdown格式"
+
+tools_required: []
+
+entry_point: "agents.writing.agent:WritingAgent"

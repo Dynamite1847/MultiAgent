@@ -1,0 +1,10 @@
+name: tavily_search
+type: tool
+display_name: "Tavily搜索"
+description: "互联网实时搜索API，支持基础和深度搜索模式"
+version: "1.0"
+
+config_required:
+  - TAVILY_API_KEY
+
+entry_point: "tools.tavily_search.client:TavilySearchTool"
