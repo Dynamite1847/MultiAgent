@@ -81,6 +81,13 @@ ORCHESTRATOR_PROMPT_FOOTER = """
 
 ### 结果汇总
 所有步骤完成后，整合全部输出，生成一段用户友好的总结。
+
+### 自我扩展
+如果你发现当前没有合适的工具或Agent来完成用户的需求，你可以自行创建：
+1. 用 write_file 在 tools/ 或 agents/ 目录下创建必要的代码文件（manifest.yaml + 实现代码）
+2. 调用 reload_registry 工具热加载新创建的工具/Agent
+3. 然后就可以在执行计划中使用新注册的工具/Agent
+参考现有工具（如 tools/tavily_search/）的结构来创建新工具。
 """
 
 

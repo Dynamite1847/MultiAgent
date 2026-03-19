@@ -79,13 +79,22 @@ def startup():
     agent_registry = AgentRegistry()
     agent_registry.discover_and_register(config, llm_client, tool_registry)
 
-    # 5. 初始化内部工具（沙箱限制在项目根目录）
+    # 5. 初始化内部工具（沙箱限制在项目根目录，传入 registry 引用）
     project_root = os.path.dirname(os.path.abspath(__file__))
-    internal_tools = InternalTools(project_root)
+    internal_tools = InternalTools(
+        project_root,
+        tool_registry=tool_registry,
+        agent_registry=agent_registry,
+        config=config,
+        llm_client=llm_client,
+    )
 
     # 6. 初始化 Orchestrator
     orchestrator = Orchestrator(config, llm_client, agent_registry, internal_tools)
     orchestrator.initialize()
+
+    # 7. 反向引用（reload_registry 需要刷新 Orchestrator 的 prompt）
+    internal_tools.set_orchestrator(orchestrator)
 
     logger.info("系统就绪，等待用户输入")
 

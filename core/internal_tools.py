@@ -1,20 +1,33 @@
 """
-内部工具 - 通用的沙箱化文件操作原语
-Orchestrator 通过组合这些原语完成具体任务（读配置、改设置等）
+内部工具 - 通用的沙箱化文件操作原语 + 动态注册能力
+Orchestrator 通过组合这些原语完成具体任务
 """
 import os
+import importlib
 from core.logger import logger
 
 
 class InternalTools:
     """
     Orchestrator 的内部工具集。
-    只提供三个通用原语：read_file / write_file / list_directory
-    所有操作限制在项目根目录沙箱内。
+    通用原语：read_file / write_file / list_directory
+    动态注册：reload_registry（热加载新工具/Agent）
+    所有文件操作限制在项目根目录沙箱内。
     """
 
-    def __init__(self, project_root: str):
+    def __init__(self, project_root: str,
+                 tool_registry=None, agent_registry=None,
+                 config=None, llm_client=None):
         self.project_root = os.path.abspath(project_root)
+        self._tool_registry = tool_registry
+        self._agent_registry = agent_registry
+        self._config = config
+        self._llm_client = llm_client
+        self._orchestrator = None  # 由 Orchestrator 初始化后反向设置
+
+    def set_orchestrator(self, orchestrator):
+        """反向引用 Orchestrator，用于 reload 后刷新 system prompt"""
+        self._orchestrator = orchestrator
 
     # ────────────────────────────────────────
     # 工具定义（供 LLM 了解可用能力）
@@ -40,6 +53,10 @@ class InternalTools:
                 "name": "list_directory",
                 "description": "列出项目目录下某个路径的文件和子目录",
                 "parameters": {"path": "目录相对路径，默认为项目根目录"},
+            },
+            {
+                "name": "reload_registry",
+                "description": "重新扫描 tools/ 和 agents/ 目录，热加载新创建的工具和Agent。在用 write_file 创建新工具代码后调用此工具来注册",
             },
         ]
 
@@ -164,3 +181,115 @@ class InternalTools:
 
         display_path = path or "."
         return f"## 目录: {display_path}\n\n" + "\n".join(items)
+
+    # ────────────────────────────────────────
+    # 动态注册
+    # ────────────────────────────────────────
+
+    def _tool_reload_registry(self) -> str:
+        """重新扫描 tools/ 和 agents/ 目录，增量注册新发现的工具和Agent"""
+        results = []
+
+        # ── 增量加载工具 ──
+        if self._tool_registry and self._config:
+            tools_dir = os.path.join(self.project_root, "tools")
+            if os.path.isdir(tools_dir):
+                existing = set(self._tool_registry.list_tools())
+                new_count = 0
+                for item in sorted(os.listdir(tools_dir)):
+                    tool_dir = os.path.join(tools_dir, item)
+                    manifest_path = os.path.join(tool_dir, "manifest.yaml")
+                    if not os.path.isdir(tool_dir) or not os.path.isfile(manifest_path):
+                        continue
+                    try:
+                        import yaml
+                        with open(manifest_path, "r", encoding="utf-8") as f:
+                            manifest = yaml.safe_load(f)
+                        name = manifest.get("name", item)
+                        if name in existing:
+                            continue  # 已注册，跳过
+                        # 动态加载
+                        entry = manifest["entry_point"]
+                        module_path, class_name = entry.rsplit(":", 1)
+                        # 强制重新导入（防止缓存）
+                        module = importlib.import_module(module_path)
+                        importlib.reload(module)
+                        cls = getattr(module, class_name)
+                        instance = cls(self._config)
+                        self._tool_registry._tools[name] = {
+                            "manifest": manifest,
+                            "instance": instance,
+                        }
+                        new_count += 1
+                        logger.info(f"动态注册工具: {name}")
+                        results.append(f"✅ 工具 {name} 注册成功")
+                    except Exception as e:
+                        logger.error(f"动态加载工具失败 [{item}]: {e}")
+                        results.append(f"❌ 工具 {item} 加载失败: {e}")
+                if new_count == 0:
+                    results.append("工具: 无新增")
+
+        # ── 增量加载 Agent ──
+        if self._agent_registry and self._config and self._llm_client:
+            agents_dir = os.path.join(self.project_root, "agents")
+            if os.path.isdir(agents_dir):
+                existing = set(self._agent_registry.list_agents())
+                new_count = 0
+                for item in sorted(os.listdir(agents_dir)):
+                    agent_dir = os.path.join(agents_dir, item)
+                    manifest_path = os.path.join(agent_dir, "manifest.yaml")
+                    if not os.path.isdir(agent_dir) or item.startswith("__"):
+                        continue
+                    if not os.path.isfile(manifest_path):
+                        continue
+                    try:
+                        import yaml
+                        with open(manifest_path, "r", encoding="utf-8") as f:
+                            manifest = yaml.safe_load(f)
+                        name = manifest.get("name", item)
+                        if name in existing:
+                            continue
+
+                        # 读取 system prompt
+                        prompts_path = os.path.join(agent_dir, "prompts.md")
+                        system_prompt = ""
+                        if os.path.isfile(prompts_path):
+                            with open(prompts_path, "r", encoding="utf-8") as f:
+                                system_prompt = f.read()
+
+                        # 动态加载
+                        entry = manifest["entry_point"]
+                        module_path, class_name = entry.rsplit(":", 1)
+                        module = importlib.import_module(module_path)
+                        importlib.reload(module)
+                        cls = getattr(module, class_name)
+                        instance = cls(
+                            config=self._config,
+                            llm_client=self._llm_client,
+                            tool_registry=self._tool_registry,
+                            system_prompt=system_prompt,
+                            manifest=manifest,
+                        )
+                        self._agent_registry._agents[name] = {
+                            "manifest": manifest,
+                            "instance": instance,
+                            "system_prompt": system_prompt,
+                        }
+                        new_count += 1
+                        logger.info(f"动态注册Agent: {name}")
+                        results.append(f"✅ Agent {name} 注册成功")
+                    except Exception as e:
+                        logger.error(f"动态加载Agent失败 [{item}]: {e}")
+                        results.append(f"❌ Agent {item} 加载失败: {e}")
+                if new_count == 0:
+                    results.append("Agent: 无新增")
+
+        # ── 刷新 Orchestrator 的 System Prompt ──
+        if self._orchestrator and (results and any("✅" in r for r in results)):
+            try:
+                self._orchestrator.initialize()
+                results.append("✅ Orchestrator System Prompt 已刷新")
+            except Exception as e:
+                results.append(f"⚠️ Prompt 刷新失败: {e}")
+
+        return "\n".join(results) if results else "无变化"
