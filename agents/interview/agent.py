@@ -1,19 +1,19 @@
 """
-InterviewAgent - 用户访谈Agent（特殊Agent：暂停工作流与用户多轮对话）
+InterviewAgent - 用户访谈Agent（Web 兼容版：通过 need_input 协议与用户多轮对话）
 """
+import json
 from agents.base import BaseAgent
 from core.logger import logger
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Prompt
-
-console = Console()
 
 
 class InterviewAgent(BaseAgent):
     """
-    用户访谈Agent：暂停工作流，与用户进行多轮对话。
-    这是唯一需要用户直接参与的Agent。
+    用户访谈Agent：通过 need_input 返回值暂停工作流，与用户进行多轮对话。
+    
+    执行流程：
+    1. 首次调用（无 user_answer）→ 生成开场白+首轮问题 → 返回 need_input
+    2. 后续调用（有 user_answer）→ 基于对话历史追问 → 返回 need_input
+    3. 当所有主题聊完 → 生成摘要 → 返回正常字符串
     """
 
     def execute(self, input_data: dict, context: str = "") -> str:
@@ -21,10 +21,16 @@ class InterviewAgent(BaseAgent):
         if not topics:
             return "错误：未提供访谈主题"
 
-        logger.info(f"InterviewAgent 开始执行 (主题: {', '.join(topics)})")
+        user_answer = input_data.get("user_answer", "")
+        agent_state = input_data.get("_agent_state", {})
+        conversation_history = agent_state.get("conversation_history", [])
+        round_num = agent_state.get("round_num", 0)
 
-        # 1. 生成访谈提纲
-        opening_prompt = f"""根据以下访谈主题，生成开场白和第一轮问题。
+        logger.info(f"InterviewAgent 执行 (主题: {', '.join(topics)}, round: {round_num})")
+
+        # ── 首次调用：生成开场白 ──
+        if not user_answer:
+            opening_prompt = f"""根据以下访谈主题，生成开场白和首轮问题。
 
 ## 访谈主题
 {chr(10).join(f'- {t}' for t in topics)}
@@ -35,61 +41,79 @@ class InterviewAgent(BaseAgent):
 
 注意：你是共创伙伴，提问要有针对性，帮助用户厘清想法。
 """
-        messages = self._build_messages(opening_prompt, context)
-        opening = self.llm_client.call(messages, role=self.name)
+            messages = self._build_messages(opening_prompt, context)
+            opening = self.llm_client.call(messages, role=self.name)
 
-        # 2. 与用户多轮对话
-        conversation_history = []
-        conversation_messages = list(messages)  # 完整消息历史
-        conversation_messages.append({"role": "assistant", "content": opening})
+            return json.dumps({
+                "type": "need_input",
+                "message": opening,
+                "questions": [opening],
+                "state": {
+                    "conversation_history": [],
+                    "round_num": 0,
+                    "topics": topics,
+                    "llm_messages": messages + [{"role": "assistant", "content": opening}],
+                },
+            }, ensure_ascii=False)
 
-        console.print()
-        console.print(Panel(
-            f"[bold cyan]🎤 用户访谈[/bold cyan]\n主题: {', '.join(topics)}",
-            border_style="cyan",
-        ))
-        console.print()
-        console.print(f"[cyan]{opening}[/cyan]")
-        console.print()
-        console.print("[dim]提示: 输入你的回答，输入 'done' 或 '结束' 结束访谈[/dim]")
-        console.print()
+        # ── 用户回答了"结束" ──
+        if user_answer.strip().lower() in ("done", "结束", "exit", "quit", "完成"):
+            return self._generate_summary(topics, conversation_history, context)
 
-        round_num = 0
-        while True:
-            # 用户输入
-            user_input = Prompt.ask("[bold green]你的回答[/bold green]")
+        # ── 后续轮次：基于历史追问 ──
+        round_num += 1
+        conversation_history.append({"role": "user_answer", "content": user_answer})
 
-            if user_input.lower().strip() in ("done", "结束", "exit", "quit"):
-                console.print("\n[dim]访谈结束，正在整理摘要...[/dim]\n")
-                break
-
-            round_num += 1
-            conversation_history.append({"role": "user_answer", "content": user_input})
-
-            # Agent 基于对话历史继续提问
-            conversation_messages.append({"role": "user", "content": user_input})
-
-            follow_up_prompt = (
-                "根据用户的回答，继续深入提问。"
-                "如果当前主题已经聊清楚了，进入下一个主题。"
-                "如果所有主题都聊完了，告诉用户可以结束访谈。"
-                "每次提2-3个问题。"
+        # 恢复 LLM 对话上下文
+        llm_messages = agent_state.get("llm_messages", [])
+        if not llm_messages:
+            llm_messages = self._build_messages(
+                f"访谈主题: {', '.join(topics)}", context
             )
-            conversation_messages.append({"role": "user", "content": follow_up_prompt})
+        llm_messages.append({"role": "user", "content": user_answer})
 
-            follow_up = self.llm_client.call(conversation_messages, role=self.name)
-            conversation_messages.append({"role": "assistant", "content": follow_up})
+        follow_up_prompt = (
+            "根据用户的回答，继续深入提问。"
+            "如果当前主题已经聊清楚了，进入下一个主题。"
+            '如果所有主题都聊完了，告诉用户可以输入「结束」来完成访谈。'
+            "每次提2-3个问题。"
+        )
+        llm_messages.append({"role": "user", "content": follow_up_prompt})
 
-            console.print(f"\n[cyan]{follow_up}[/cyan]\n")
+        follow_up = self.llm_client.call(llm_messages, role=self.name)
+        llm_messages.append({"role": "assistant", "content": follow_up})
+        conversation_history.append({"role": "agent", "content": follow_up})
 
-        # 3. 生成访谈摘要
+        # 检查是否可以自动结束（超过合理轮数）
+        if round_num >= 10:
+            return self._generate_summary(topics, conversation_history, context)
+
+        return json.dumps({
+            "type": "need_input",
+            "message": follow_up,
+            "questions": [follow_up],
+            "state": {
+                "conversation_history": conversation_history,
+                "round_num": round_num,
+                "topics": topics,
+                "llm_messages": llm_messages,
+            },
+        }, ensure_ascii=False)
+
+    def _generate_summary(self, topics: list, conversation_history: list, context: str) -> str:
+        """生成访谈摘要（正常字符串返回，而非 need_input）"""
+        if not conversation_history:
+            return "访谈未进行任何对话。"
+
+        formatted = self._format_conversation(conversation_history)
+
         summary_prompt = f"""请根据以下访谈记录，生成结构化的访谈摘要。
 
 ## 访谈主题
 {chr(10).join(f'- {t}' for t in topics)}
 
 ## 对话记录
-{self._format_conversation(conversation_history)}
+{formatted}
 
 请输出结构化摘要，包含：
 1. 每个主题的关键结论
@@ -97,10 +121,9 @@ class InterviewAgent(BaseAgent):
 3. 待进一步确认的问题
 4. 访谈中发现的关键洞察
 """
-        summary_messages = self._build_messages(summary_prompt, context)
-        summary = self.llm_client.call(summary_messages, role=self.name)
-
-        logger.info(f"InterviewAgent 完成 (共{round_num}轮对话)")
+        messages = self._build_messages(summary_prompt, context)
+        summary = self.llm_client.call(messages, role=self.name)
+        logger.info(f"InterviewAgent 完成 (共{len(conversation_history)}条记录)")
         return summary
 
     def _format_conversation(self, history: list[dict]) -> str:

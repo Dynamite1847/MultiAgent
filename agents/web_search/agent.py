@@ -14,7 +14,7 @@ class WebSearchAgent(BaseAgent):
         max_results = input_data.get("max_results", 10)
 
         if not queries:
-            return "错误：未提供搜索查询"
+            return "错误：未提供搜索查询（input 缺少 queries 字段）"
 
         logger.info(f"WebSearchAgent 开始执行 ({len(queries)} 个查询, depth={search_depth}, max={max_results})")
 

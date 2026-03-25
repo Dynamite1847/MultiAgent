@@ -132,7 +132,9 @@ def main():
                 break
 
             # 所有自然语言输入都交给 Orchestrator 理解
-            orchestrator.run(user_input)
+            console.print("\n[yellow]CLI 交互模式已移除，请使用 Web 界面：[/yellow]")
+            console.print("[bold]  🌐 http://localhost:3000[/bold]")
+            console.print("[dim]  运行 ./start.sh 启动服务[/dim]\n")
 
         except KeyboardInterrupt:
             console.print("\n\n[dim]任务中断，返回主界面[/dim]")

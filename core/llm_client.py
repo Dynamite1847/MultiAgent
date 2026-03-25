@@ -4,9 +4,15 @@ LLM Client - 统一的 LLM 调用接口，支持多 Provider
 """
 import time
 import json
+import threading
 from openai import OpenAI
 from core.config import Config, ModelConfig
 from core.logger import logger
+
+
+class LLMCancelledError(Exception):
+    """LLM 调用被取消"""
+    pass
 
 
 class LLMClient:
@@ -20,6 +26,19 @@ class LLMClient:
         # 每次任务的统计（可重置）
         self._task_tokens = 0
         self._task_calls = 0
+        # 可选回调：每次 LLM 调用后触发
+        self.on_call = None  # callback(call_info: dict)
+        # 取消标志
+        self._cancelled = threading.Event()
+
+    def cancel(self):
+        """取消当前/后续 LLM 调用"""
+        self._cancelled.set()
+        logger.info("LLM 调用已取消")
+
+    def reset_cancel(self):
+        """重置取消标志"""
+        self._cancelled.clear()
 
     def _get_client(self, model_config: ModelConfig) -> OpenAI:
         """获取或创建 OpenAI 客户端（按 provider 缓存）"""
@@ -70,9 +89,15 @@ class LLMClient:
             role_label = msg['role'].upper()
             content_preview = msg['content']
             if role_label == "SYSTEM":
-                logger.debug(f"├─ [{role_label}] ({len(content_preview)}字符) {content_preview[:150]}...", indent=1)
+                lines = content_preview.count('\n') + 1
+                logger.debug(f"├─ [SYSTEM PROMPT] ({len(content_preview)}字符, {lines}行)", indent=1)
+                # 完整记录 system prompt（按行缩进）
+                for line in content_preview.split('\n')[:50]:  # 最多50行
+                    logger.debug(f"│    {line}", indent=1)
+                if lines > 50:
+                    logger.debug(f"│    ... (省略 {lines - 50} 行)", indent=1)
             else:
-                logger.debug(f"├─ [{role_label}] {content_preview[:200]}{'...' if len(content_preview) > 200 else ''}", indent=1)
+                logger.debug(f"├─ [{role_label}] {content_preview[:300]}{'...' if len(str(content_preview)) > 300 else ''}", indent=1)
 
         start_time = time.time()
 
@@ -86,7 +111,13 @@ class LLMClient:
             kwargs["response_format"] = response_format
 
         try:
+            # 检查取消标志
+            if self._cancelled.is_set():
+                raise LLMCancelledError("任务已取消")
             response = client.chat.completions.create(**kwargs)
+            # 调用完成后再检查一次
+            if self._cancelled.is_set():
+                raise LLMCancelledError("任务已取消")
         except Exception as e:
             logger.error(f"LLM调用失败: {e}")
             raise
@@ -115,6 +146,21 @@ class LLMClient:
         )
         # ── 详细日志：完整响应内容 ──
         logger.debug(f"├─ [LLM返回] {content[:500]}{'...' if len(content) > 500 else ''}", indent=1)
+
+        # ── 回调通知 ──
+        if self.on_call:
+            try:
+                self.on_call({
+                    "role": role,
+                    "model": f"{model_config.provider}/{model_config.model}",
+                    "messages": messages,
+                    "response": content,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "elapsed": round(elapsed, 2),
+                })
+            except Exception:
+                pass  # 回调失败不影响主流程
 
         return content
 
@@ -280,15 +326,34 @@ class LLMClient:
             except (json.JSONDecodeError, IndexError):
                 pass
 
-        # 4. 尝试找到第一个 { 到最后一个 } 之间的内容
+        # 4. 用括号匹配提取第一个完整的 JSON 对象
         first_brace = content.find("{")
-        last_brace = content.rfind("}")
-        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-            try:
-                json_str = content[first_brace:last_brace + 1]
-                return json.loads(json_str)
-            except json.JSONDecodeError:
-                pass
+        if first_brace != -1:
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(first_brace, len(content)):
+                ch = content[i]
+                if escape:
+                    escape = False
+                    continue
+                if ch == '\\':
+                    escape = True
+                    continue
+                if ch == '"' and not escape:
+                    in_string = not in_string
+                    continue
+                if in_string:
+                    continue
+                if ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(content[first_brace:i + 1])
+                        except json.JSONDecodeError:
+                            break
 
         logger.error(f"无法从 LLM 响应中提取 JSON:\n{content[:500]}")
         raise ValueError("LLM 返回的内容无法解析为 JSON")

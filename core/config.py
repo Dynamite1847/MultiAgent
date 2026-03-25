@@ -1,10 +1,18 @@
 """
-配置加载器 - 支持多Provider、多模型、角色级模型切换
+配置加载器 — 统一配置源
+- 所有配置从 config.yaml 读取
+- API Key 从 .env 环境变量读取 (格式: {PROVIDER}_API_KEY)
 """
 import os
+import json
 import yaml
-from dotenv import load_dotenv
+from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+
+load_dotenv()
+
+CONFIG_YAML_PATH = Path(__file__).parent.parent / "config.yaml"
 
 
 class ModelConfig:
@@ -18,39 +26,51 @@ class ModelConfig:
         self.api_key = api_key
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.json_format_mode = json_format_mode  # chat_completions / responses_api / prompt
+        self.json_format_mode = json_format_mode
 
     def __repr__(self):
         return f"ModelConfig(provider={self.provider}, model={self.model})"
 
 
 class Config:
-    """全局配置管理器"""
+    """全局配置管理器 — 统一读取 config.yaml"""
 
-    def __init__(self, config_path: str = "config.yaml"):
-        load_dotenv()
-        self._config_path = config_path
-        self._raw = self._load_yaml(config_path)
+    def __init__(self, config_path: str = None):
+        yaml_path = config_path or str(CONFIG_YAML_PATH)
+        self._yaml_path = yaml_path
+        self._raw = self._load_yaml(yaml_path)
+
+        # Provider 信息
         self.providers = self._raw.get("providers", {})
+        # 角色→模型映射 (Agent)
         self.role_models = self._raw.get("role_models", {})
+        # 系统参数
         self.system = self._raw.get("system", {})
 
     def _load_yaml(self, path: str) -> dict:
-        with open(path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f)
+        p = Path(path)
+        if not p.exists():
+            return {}
+        with open(p, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
 
     def reload(self):
-        """重新加载配置（支持运行时切换模型）"""
-        self._raw = self._load_yaml(self._config_path)
+        """重新加载配置"""
+        self._raw = self._load_yaml(self._yaml_path)
         self.providers = self._raw.get("providers", {})
         self.role_models = self._raw.get("role_models", {})
         self.system = self._raw.get("system", {})
 
+    def get_api_key(self, provider_name: str) -> str:
+        """从 .env 读取 provider 的 API Key"""
+        env_key = f"{provider_name.upper()}_API_KEY"
+        key = os.getenv(env_key, "")
+        if not key:
+            raise ValueError(f"环境变量 '{env_key}' 未设置")
+        return key
+
     def get_model_for_role(self, role: str) -> ModelConfig:
-        """
-        根据角色获取模型配置
-        role_models 格式: "provider/model" (e.g. "doubao/doubao-seed-2-0-pro-260215")
-        """
+        """根据角色获取模型配置"""
         role_model_str = self.role_models.get(role)
         if not role_model_str:
             raise ValueError(f"角色 '{role}' 未在 config.yaml 的 role_models 中配置")
@@ -65,22 +85,17 @@ class Config:
                 f"模型 '{model_name}' 不在 provider '{provider_name}' 的可用模型列表中"
             )
 
-        # 从 .env 读取 API Key
-        api_key_env = provider.get("api_key_env", f"{provider_name.upper()}_API_KEY")
-        api_key = os.getenv(api_key_env, "")
-        if not api_key:
-            raise ValueError(
-                f"环境变量 '{api_key_env}' 未设置，请在 .env 文件中配置"
-            )
+        api_key = self.get_api_key(provider_name)
+        json_mode = provider.get("json_format_mode", "prompt")
 
         return ModelConfig(
             provider=provider_name,
             model=model_name,
-            base_url=provider["base_url"],
+            base_url=provider.get("base_url", ""),
             api_key=api_key,
             temperature=self.system.get("temperature", 0.7),
             max_tokens=self.system.get("max_tokens", 4096),
-            json_format_mode=provider.get("json_format_mode", "prompt"),
+            json_format_mode=json_mode,
         )
 
     def _parse_role_model(self, role_model_str: str) -> tuple[str, str]:
@@ -112,7 +127,7 @@ class Config:
         result = {}
         for name, provider in self.providers.items():
             result[name] = {
-                "base_url": provider["base_url"],
+                "base_url": provider.get("base_url", ""),
                 "models": provider.get("models", []),
             }
         return result

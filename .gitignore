@@ -18,3 +18,11 @@ logs/
 
 # OS
 .DS_Store
+
+# Frontend
+node_modules/
+frontend/dist/
+
+# Server and runtime
+*.pid
+sessions/
