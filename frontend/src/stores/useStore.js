@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { fetchSessions, fetchSession, createSession, fetchStatus, fetchConfig, streamConfirmPlan, retryLastMessages, fetchAgentConfig, fetchWorkflow } from '../utils/api'
+import { fetchSessions, fetchSession, createSession, fetchStatus, fetchConfig, streamConfirmPlan, retryLastMessages, fetchAgentConfig, fetchWorkflow, fetchAgentActivity } from '../utils/api'
 
 const useStore = create((set, get) => ({
     // ═══ 系统配置 ═══
@@ -81,6 +81,12 @@ const useStore = create((set, get) => ({
     setStepModel: (stepId, model) => set(s => ({ stepModels: { ...s.stepModels, [stepId]: model } })),
     agentConfig: null,   // { role_models, available_providers }
     setAgentConfig: (c) => set({ agentConfig: c }),
+    // ── 新 Agent Loop 状态 ──
+    toolCalls: [],        // 当前 session 的工具调用记录 [{id, name, arguments, status, result}]
+    agentTurns: 0,        // Agent 当前迭代轮次
+    agentMaxTurns: 25,    // 最大迭代轮次
+    waitingToolConfirm: false,  // 是否在等待用户确认工具调用
+    pendingToolCall: null,      // 待确认的工具调用 {name, arguments, message}
 
     // ═══ 确认计划（修复：之前缺失导致 Workflow 无法启动）═══
     confirmPlan: (action, modification = '') => {
@@ -235,7 +241,30 @@ const useStore = create((set, get) => ({
                 reviewingStepId: null,
                 reviewNextStep: null,
                 llmLogs: [],
+                // 重置 Agent Loop 状态
+                toolCalls: [],
+                agentTurns: 0,
+                waitingToolConfirm: false,
+                pendingToolCall: null,
             })
+
+            // 加载 Agent Loop 活动历史
+            if (sessionMode === 'agent') {
+                try {
+                    const activities = await fetchAgentActivity(sessionId)
+                    if (activities && activities.length > 0) {
+                        // 合并所有历史活动的 tool calls
+                        const allToolCalls = activities.flatMap(a => (a.tool_calls || []))
+                        const lastActivity = activities[activities.length - 1]
+                        set({
+                            toolCalls: allToolCalls,
+                            agentTurns: lastActivity.turns || 0,
+                        })
+                    }
+                } catch (e) {
+                    console.warn('加载 Agent 活动历史失败:', e)
+                }
+            }
 
             // 加载该 session 的工作流数据
             try {
@@ -378,8 +407,25 @@ const useStore = create((set, get) => ({
         const { type, data } = event
 
         switch (type) {
+            // ═══ 新 Agent Loop 事件 ═══
+
+            case 'agent_start':
+                // Agent Loop 开始
+                set({
+                    agentThinking: '正在分析任务...',
+                    toolCalls: [],
+                    agentTurns: 0,
+                    agentMaxTurns: data.max_turns || 25,
+                })
+                break
+
             case 'thinking':
-                // 如果当前有已执行的工作流，归档到前端历史（后端 archive 已持久化）
+                // Agent 思考中（新 + 旧 兼容）
+                set({
+                    agentThinking: data.message || `思考中（第 ${data.turn || '?'} 轮）...`,
+                    agentTurns: data.turn || get().agentTurns,
+                })
+                // 旧逻辑：归档前一次工作流
                 if (get().plan && get().workflowSteps.length > 0 &&
                     get().workflowSteps.some(s => s.status !== 'pending')) {
                     set(s => ({
@@ -394,11 +440,106 @@ const useStore = create((set, get) => ({
                         llmLogs: [],
                     }))
                 } else if (!get().plan) {
-                    // 没有进行中的工作流时也清空日志（新任务开始）
                     set({ llmLogs: [] })
                 }
-                set({ agentThinking: data.message })
                 break
+
+            case 'text':
+                // Agent 文本输出
+                set(s => ({
+                    agentThinking: '',
+                    activeSession: s.activeSession ? {
+                        ...s.activeSession,
+                        messages: [...(s.activeSession.messages || []),
+                            { role: 'assistant', content: data.content, timestamp: new Date().toISOString() }
+                        ],
+                    } : s.activeSession,
+                }))
+                break
+
+            case 'tool_call':
+                // Agent 要调用工具
+                set(s => ({
+                    agentThinking: `调用工具: ${data.name}...`,
+                    toolCalls: [...(s.toolCalls || []), {
+                        id: data.id,
+                        name: data.name,
+                        arguments: data.arguments,
+                        status: 'calling',
+                        turn: data.turn,
+                    }],
+                }))
+                break
+
+            case 'tool_start':
+                // Pipeline: 工具开始执行
+                break
+
+            case 'tool_confirm':
+                // 需要用户确认破坏性操作
+                set(s => ({
+                    agentThinking: '',
+                    waitingToolConfirm: true,
+                    pendingToolCall: {
+                        name: data.name,
+                        arguments: data.arguments,
+                        message: data.message,
+                    },
+                }))
+                break
+
+            case 'tool_rejected':
+                set({ waitingToolConfirm: false, pendingToolCall: null })
+                break
+
+            case 'tool_result':
+                // 工具执行完成
+                set(s => ({
+                    agentThinking: '',
+                    toolCalls: (s.toolCalls || []).map(tc =>
+                        tc.id === data.id
+                            ? { ...tc, status: 'done', result: data.result, elapsed: data.elapsed }
+                            : tc
+                    ),
+                }))
+                break
+
+            case 'tool_error':
+                set(s => ({
+                    agentThinking: '',
+                    toolCalls: (s.toolCalls || []).map(tc =>
+                        tc.name === data.name && tc.status === 'calling'
+                            ? { ...tc, status: 'error', error: data.error }
+                            : tc
+                    ),
+                }))
+                break
+
+            case 'compact':
+                set({ agentThinking: data.message || '正在压缩上下文...' })
+                break
+
+            case 'compact_done':
+                set({ agentThinking: '' })
+                break
+
+            case 'interrupted':
+                set({ agentThinking: '' })
+                break
+
+            case 'max_turns':
+                set(s => ({
+                    agentThinking: '',
+                    activeSession: s.activeSession ? {
+                        ...s.activeSession,
+                        messages: [...(s.activeSession.messages || []),
+                            { role: 'system', content: `⚠️ ${data.message}`, timestamp: new Date().toISOString() }
+                        ],
+                    } : s.activeSession,
+                }))
+                break
+
+            // ═══ 旧 Orchestrator 兼容事件 ═══
 
             case 'intent':
                 set({ agentThinking: '' })
@@ -455,7 +596,6 @@ const useStore = create((set, get) => ({
                 break
 
             case 'step_review':
-                // 逐步审查：步骤完成后等待用户操作
                 set(s => ({
                     agentThinking: '',
                     reviewingStepId: data.step_id,
@@ -552,10 +692,19 @@ const useStore = create((set, get) => ({
                 break
 
             case 'done':
-                // 工作流完成 → 归档到历史
                 set(s => {
-                    const update = { agentThinking: '', stepModels: {}, waitingConfirm: false }
-                    // 如果有已执行的工作流步骤，归档
+                    const update = {
+                        agentThinking: '',
+                        stepModels: {},
+                        waitingConfirm: false,
+                        waitingToolConfirm: false,
+                        pendingToolCall: null,
+                    }
+                    // 记录完成信息
+                    if (data.turns) {
+                        update.agentTurns = data.turns
+                    }
+                    // 如果有已执行的工作流步骤（旧模式），归档
                     if (s.plan && s.workflowSteps.length > 0) {
                         update.workflowHistory = [...s.workflowHistory, {
                             plan: s.plan,

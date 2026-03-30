@@ -81,6 +81,11 @@ export async function fetchWorkflow(id) {
     return r.json()
 }
 
+export async function fetchAgentActivity(id) {
+    const r = await authFetch(`${BASE}/sessions/${id}/agent-activity`)
+    return r.json()
+}
+
 export async function updateSession(id, patch) {
     const r = await authFetch(`${BASE}/sessions/${id}`, {
         method: 'PATCH',
@@ -387,11 +392,50 @@ export async function fetchAgentConfig() {
     return r.json()
 }
 
-export async function updateAgentConfig(role_models) {
+export async function updateAgentConfig(updates) {
+    // updates can include: role_models, instructions, context_limit
     const r = await authFetch(`${BASE}/agent/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role_models })
+        body: JSON.stringify(updates)
+    })
+    return r.json()
+}
+
+// ═══ Agent Loop 控制 ═══
+
+/**
+ * 在 Agent 执行过程中注入用户反馈。
+ * Agent 在下一轮迭代会看到这条消息并调整策略。
+ */
+export async function injectAgentFeedback(sessionId, message) {
+    const r = await authFetch(`${BASE}/agent/inject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, message })
+    })
+    return r.json()
+}
+
+/**
+ * 用户确认/拒绝破坏性工具调用。
+ */
+export async function confirmToolCall(sessionId, approved = true) {
+    const r = await authFetch(`${BASE}/agent/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, approved })
+    })
+    return r.json()
+}
+
+/**
+ * 取消当前 Agent Loop。
+ */
+export async function cancelAgentLoop() {
+    const r = await authFetch(`${BASE}/agent/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
     })
     return r.json()
 }

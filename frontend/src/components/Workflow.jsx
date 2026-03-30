@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import useStore from '../stores/useStore'
 import WorkflowNode from './WorkflowNode'
 import LlmLogPanel from './LlmLogPanel'
-import { pauseTask, resumeTask, updateAgentConfig, fetchAgentConfig } from '../utils/api'
+import { updateAgentConfig, fetchAgentConfig, cancelAgentLoop } from '../utils/api'
 
 export default function Workflow() {
     const plan = useStore(s => s.plan)
@@ -68,7 +68,7 @@ export default function Workflow() {
             } else {
                 newRoleModels['orchestrator'] = newRoleModel
             }
-            const result = await updateAgentConfig(newRoleModels)
+            const result = await updateAgentConfig({ role_models: newRoleModels })
             // 更新本地 agentConfig
             setAgentConfig({
                 ...agentConfig,
@@ -170,8 +170,29 @@ export default function Workflow() {
         </div>
     )
 
-    // 没有 plan 也没有历史时显示空状态
-    if (!plan && workflowSteps.length === 0 && workflowHistory.length === 0) {
+    // ── 新 Agent Loop 状态 ──
+    const toolCalls = useStore(s => s.toolCalls)
+    const agentTurns = useStore(s => s.agentTurns)
+    const agentMaxTurns = useStore(s => s.agentMaxTurns)
+    const waitingToolConfirm = useStore(s => s.waitingToolConfirm)
+    const pendingToolCall = useStore(s => s.pendingToolCall)
+
+    const hasToolCalls = toolCalls && toolCalls.length > 0
+    const isAgentThinking = !!agentThinking
+
+    // 工具确认处理
+    const handleToolConfirm = async (approved) => {
+        try {
+            const { confirmToolCall } = await import('../utils/api')
+            await confirmToolCall(activeSessionId || '', approved)
+            useStore.setState({ waitingToolConfirm: false, pendingToolCall: null })
+        } catch (e) {
+            addToast('确认失败: ' + e.message, 'error')
+        }
+    }
+
+    // 没有 plan 也没有历史 也没有工具调用时显示空状态
+    if (!plan && workflowSteps.length === 0 && workflowHistory.length === 0 && !hasToolCalls && !isAgentThinking) {
         return (
             <div className="workflow">
                 {agentConfig && <ModelSelector />}
@@ -180,6 +201,106 @@ export default function Workflow() {
                     <h4>Agent 工作区</h4>
                     <p>发送任务后，编排计划会显示在这里</p>
                 </div>
+            </div>
+        )
+    }
+
+    // ── Agent Loop 活动面板（新架构） ──
+    if ((hasToolCalls || isAgentThinking) && !plan) {
+        return (
+            <div className="workflow">
+                {agentConfig && <ModelSelector />}
+
+                {/* Agent 状态头 */}
+                <div className="agent-loop-header">
+                    <div className="agent-loop-title">
+                        <span className="agent-loop-icon">⚡</span>
+                        <span>Agent Loop</span>
+                        {agentTurns > 0 && (
+                            <span className="agent-loop-turns">
+                                第 {agentTurns}/{agentMaxTurns} 轮
+                            </span>
+                        )}
+                    </div>
+                    {isAgentThinking && (
+                        <div className="agent-loop-thinking">
+                            <span className="thinking-dot" />
+                            <span>{agentThinking}</span>
+                        </div>
+                    )}
+                </div>
+
+                {/* 工具确认对话框 */}
+                {waitingToolConfirm && pendingToolCall && (
+                    <div className="tool-confirm-dialog">
+                        <div className="tool-confirm-icon">⚠️</div>
+                        <div className="tool-confirm-info">
+                            <div className="tool-confirm-title">
+                                Agent 想要执行 <strong>{pendingToolCall.name}</strong>
+                            </div>
+                            <pre className="tool-confirm-args">
+                                {JSON.stringify(pendingToolCall.arguments, null, 2)}
+                            </pre>
+                        </div>
+                        <div className="tool-confirm-actions">
+                            <button className="btn-confirm-approve" onClick={() => handleToolConfirm(true)}>
+                                ✅ 允许
+                            </button>
+                            <button className="btn-confirm-reject" onClick={() => handleToolConfirm(false)}>
+                                ❌ 拒绝
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* 工具调用列表 */}
+                {hasToolCalls && (
+                    <div className="tool-calls-list">
+                        {toolCalls.map((tc, i) => (
+                            <div key={tc.id || i} className={`tool-call-item tool-call-${tc.status}`}>
+                                <div className="tool-call-header">
+                                    <span className="tool-call-icon">
+                                        {tc.status === 'calling' ? '🔄' :
+                                         tc.status === 'done' ? '✅' :
+                                         tc.status === 'error' ? '❌' : '⏳'}
+                                    </span>
+                                    <span className="tool-call-name">{tc.name}</span>
+                                    {tc.elapsed && (
+                                        <span className="tool-call-time">{tc.elapsed}s</span>
+                                    )}
+                                    {tc.turn && (
+                                        <span className="tool-call-turn">R{tc.turn}</span>
+                                    )}
+                                </div>
+
+                                {/* 参数 */}
+                                <div className="tool-call-args">
+                                    {Object.entries(tc.arguments || {}).map(([k, v]) => (
+                                        <span key={k} className="tool-call-arg">
+                                            <span className="arg-key">{k}:</span>
+                                            <span className="arg-val">{typeof v === 'string' ? v.slice(0, 80) : JSON.stringify(v).slice(0, 80)}</span>
+                                        </span>
+                                    ))}
+                                </div>
+
+                                {/* 结果预览 */}
+                                {tc.result && (
+                                    <details className="tool-call-result">
+                                        <summary>查看结果 ({tc.result.length} 字符)</summary>
+                                        <pre>{tc.result.slice(0, 500)}{tc.result.length > 500 ? '...' : ''}</pre>
+                                    </details>
+                                )}
+
+                                {tc.error && (
+                                    <div className="tool-call-error">{tc.error}</div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* LLM 日志 */}
+                <LlmLogPanel />
             </div>
         )
     }

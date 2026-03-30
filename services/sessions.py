@@ -295,3 +295,41 @@ def update_workflow_step(session_id: str, step_id, step_data: dict, user_id: str
     _save_session(session, user_id)
     return True
 
+
+# ═══════════════════════════════════════
+# Agent Loop Activity 持久化
+# ═══════════════════════════════════════
+
+def save_agent_activity(session_id: str, activity: dict, user_id: str = "default") -> bool:
+    """
+    保存 Agent Loop 的工具调用活动到 session。
+    activity: {
+        tool_calls: [{id, name, arguments, status, result, elapsed, turn}],
+        turns: int,
+        elapsed: float,
+        total_tokens: int,
+        total_tool_calls: int,
+    }
+    """
+    session = get_session(session_id, user_id)
+    if not session:
+        return False
+
+    # 累积到 agent_history 数组
+    history = session.get("agent_history", [])
+    activity["timestamp"] = datetime.now(timezone.utc).isoformat()
+    history.append(activity)
+
+    session["agent_history"] = history
+    session["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_session(session, user_id)
+    return True
+
+
+def get_agent_activity(session_id: str, user_id: str = "default") -> list:
+    """加载 session 的 Agent Loop 历史活动。"""
+    session = get_session(session_id, user_id)
+    if not session:
+        return []
+    return session.get("agent_history", [])
+

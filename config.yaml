@@ -34,10 +34,6 @@ providers:
     - mimo-v2-pro
 role_models:
   orchestrator: dashscope/glm-5
-  web_search: dashscope/glm-5
-  analysis: dashscope/glm-5
-  writing: dashscope/glm-5
-  interview: dashscope/glm-5
 default_provider: anthropic
 default_model: claude-opus-4-6-thinking
 global_system_prompt: ''
@@ -51,8 +47,17 @@ context_rounds: 10
 context_token_threshold: 8000
 max_single_message_tokens: 30000
 max_total_tokens: 60000
+agent:
+  max_turns: 25
+  context_limit: 128000
+  compact_threshold: 0.85
+  instructions: default
+  available_instructions:
+    - default
+    - analyst
 system:
   log_level: DEBUG
   output_dir: ./outputs
   temperature: 0.7
   max_tokens: 32768
+

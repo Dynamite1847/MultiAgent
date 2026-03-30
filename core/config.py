@@ -61,6 +61,11 @@ class Config:
         self.role_models = self._raw.get("role_models", {})
         self.system = self._raw.get("system", {})
 
+    @property
+    def raw_config(self) -> dict:
+        """返回原始配置字典"""
+        return self._raw
+
     def get_api_key(self, provider_name: str) -> str:
         """从 .env 读取 provider 的 API Key"""
         env_key = f"{provider_name.upper()}_API_KEY"

@@ -164,6 +164,141 @@ class LLMClient:
 
         return content
 
+    def call_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict] = None,
+        role: str = "orchestrator",
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> dict:
+        """
+        调用 LLM（带 Function Calling / Tool Use 支持）。
+
+        Args:
+            messages: OpenAI 格式的消息列表
+            tools: OpenAI Function Calling 格式的工具定义
+            role: 角色名称
+            temperature: 覆盖默认温度
+            max_tokens: 覆盖默认最大 tokens
+
+        Returns:
+            {
+                "content": str,           # 文本回复（可能为空）
+                "tool_calls": list[dict],  # 工具调用列表（可能为空）
+                "usage": dict,             # token 使用统计
+                "stop_reason": str,        # "end_turn" | "tool_use" | "max_tokens"
+            }
+        """
+        model_config = self.config.get_model_for_role(role)
+        client = self._get_client(model_config)
+
+        temp = temperature if temperature is not None else model_config.temperature
+        max_tok = max_tokens if max_tokens is not None else model_config.max_tokens
+
+        logger.debug(
+            f"LLM Tool Call: {model_config.provider}/{model_config.model} "
+            f"(tools={len(tools) if tools else 0})",
+            indent=1,
+        )
+
+        start_time = time.time()
+
+        kwargs = {
+            "model": model_config.model,
+            "messages": messages,
+            "temperature": temp,
+            "max_tokens": max_tok,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        try:
+            if self._cancelled.is_set():
+                raise LLMCancelledError("任务已取消")
+            response = client.chat.completions.create(**kwargs)
+            if self._cancelled.is_set():
+                raise LLMCancelledError("任务已取消")
+        except Exception as e:
+            logger.error(f"LLM Tool Call 失败: {e}")
+            raise
+
+        elapsed = time.time() - start_time
+        message = response.choices[0].message
+        content = message.content or ""
+        finish_reason = response.choices[0].finish_reason or "stop"
+
+        # 解析 tool_calls
+        parsed_tool_calls = []
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                try:
+                    args = json.loads(tc.function.arguments) if tc.function.arguments else {}
+                except json.JSONDecodeError:
+                    args = {"raw": tc.function.arguments}
+
+                parsed_tool_calls.append({
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "arguments": args,
+                })
+
+        # token 统计
+        usage = response.usage
+        prompt_tokens = 0
+        completion_tokens = 0
+        if usage:
+            prompt_tokens = usage.prompt_tokens or 0
+            completion_tokens = usage.completion_tokens or 0
+        tokens_used = prompt_tokens + completion_tokens
+        self.total_tokens += tokens_used
+        self._task_tokens += tokens_used
+        self.total_calls += 1
+        self._task_calls += 1
+
+        # 映射 stop_reason
+        stop_reason = "end_turn"
+        if finish_reason == "tool_calls":
+            stop_reason = "tool_use"
+        elif finish_reason == "length":
+            stop_reason = "max_tokens"
+
+        logger.debug(
+            f"Tool Call 响应: content={len(content)}字符, "
+            f"tool_calls={len(parsed_tool_calls)}, "
+            f"stop={stop_reason}, "
+            f"tokens={tokens_used}, 耗时{elapsed:.1f}s",
+            indent=1,
+        )
+
+        # 回调
+        if self.on_call:
+            try:
+                self.on_call({
+                    "role": role,
+                    "model": f"{model_config.provider}/{model_config.model}",
+                    "messages": messages,
+                    "response": content,
+                    "tool_calls": parsed_tool_calls,
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "elapsed": round(elapsed, 2),
+                })
+            except Exception:
+                pass
+
+        return {
+            "content": content,
+            "tool_calls": parsed_tool_calls,
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": tokens_used,
+            },
+            "stop_reason": stop_reason,
+        }
+
     def call_json(
         self,
         messages: list[dict],

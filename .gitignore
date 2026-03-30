@@ -11,19 +11,32 @@ __pycache__/
 .vscode/
 .idea/
 *.swp
+.gemini/
 
-# Outputs
+# Outputs & Data
 outputs/
 logs/
+sessions/
+users.json
+
+# Legacy code (archived)
+agents_legacy/
+orchestrator_legacy/
+core/*_legacy.py
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Frontend
 node_modules/
 frontend/dist/
+frontend/node_modules/
 
-# Server and runtime
+# Server runtime
 *.pid
-sessions/
-users.json
+.backend.pid
+.frontend.pid
+backend.log
+frontend.log
+nohup.out

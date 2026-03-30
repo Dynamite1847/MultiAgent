@@ -1813,3 +1813,256 @@ body {
   }
 }
 
+/* ═══════════════════════════════════════
+   Agent Loop — 工具调用面板
+   ═══════════════════════════════════════ */
+
+.agent-loop-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--chat-border);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(168, 85, 247, 0.06));
+}
+
+.agent-loop-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agent-loop-icon {
+  font-size: 18px;
+}
+
+.agent-loop-turns {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: auto;
+}
+
+.agent-loop-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--accent-color);
+}
+
+.thinking-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* ── 工具确认对话框 ── */
+.tool-confirm-dialog {
+  margin: 12px 16px;
+  padding: 14px;
+  border: 2px solid #f59e0b;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.tool-confirm-icon {
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+
+.tool-confirm-title {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.tool-confirm-title strong {
+  color: #f59e0b;
+}
+
+.tool-confirm-args {
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  background: var(--bg-secondary);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  color: var(--text-secondary);
+  margin: 0 0 10px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.tool-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-confirm-approve,
+.btn-confirm-reject {
+  flex: 1;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-confirm-approve {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: white;
+}
+.btn-confirm-approve:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.btn-confirm-reject {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+}
+.btn-confirm-reject:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+/* ── 工具调用列表 ── */
+.tool-calls-list {
+  padding: 8px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: calc(100vh - 320px);
+  overflow-y: auto;
+}
+
+.tool-call-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--chat-border);
+  transition: all 0.2s;
+}
+
+.tool-call-calling {
+  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.04);
+  animation: tool-pulse 2s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  0%, 100% { border-color: rgba(99, 102, 241, 0.2); }
+  50% { border-color: rgba(99, 102, 241, 0.5); }
+}
+
+.tool-call-done {
+  border-color: rgba(34, 197, 94, 0.2);
+  background: rgba(34, 197, 94, 0.03);
+}
+
+.tool-call-error {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.03);
+  color: #ef4444;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool-call-icon {
+  font-size: 14px;
+}
+
+.tool-call-name {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  color: var(--text-primary);
+}
+
+.tool-call-time {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.tool-call-turn {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.tool-call-args {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 5px;
+}
+
+.tool-call-arg {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 11px;
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.arg-key {
+  color: var(--text-muted);
+}
+
+.arg-val {
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-result {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.tool-call-result summary {
+  cursor: pointer;
+  color: var(--accent-color);
+  font-size: 11px;
+}
+
+.tool-call-result pre {
+  margin-top: 4px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  background: var(--bg-secondary);
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+  max-height: 200px;
+  overflow-y: auto;
+}
+

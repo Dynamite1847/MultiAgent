@@ -1,99 +1,230 @@
 # 🤖 Multi-Agent Workbench
 
-Multi-Agent 智能工作台是一个强大的 AI 协作平台，支持通过自然语言驱动多个专业领域 AI Agent 协作流来自动完成复杂任务，同时也提供纯粹的多模态聊天功能。项目提供现代化的 React Web 界面以及基于 FastAPI 的流式响应后端。
-
-![Workbench UI](./frontend/public/favicon.ico) <!-- Placeholder for actual screenshots -->
+一个基于 **Agent Loop 自主循环架构** 的 AI 智能工作台。通过自然语言驱动 AI Agent 自主规划、调用工具并迭代完成复杂任务，同时也提供流畅的多模态聊天体验。
 
 ## ✨ 核心特性
 
-- **双引擎模式** 
-  - 🧠 `Agent 模式`：由 Orchestrator（编排器）驱动，自动理解意图、规划步骤（生成执行计划）、并调度子 Agent 分步完成复杂工作。
-  - 💬 `对话模式`：纯粹的增强型多模态聊天，支持上传文档（PDF、Word等）和图片与 AI 交流。
-- **工作流逐步审查 (Step-by-Step Review)** —— 在运行 Agent 工作流时，可以自动在此步骤悬停审查。支持：`继续执行`、`重试当前步`、`人工干预编辑结果`。
-- **现代化体验 (Web UI)**
-  - 流式打字机输出（SSE）
-  - 会话管理（自动生成标题、每会话独立记忆其 Agent/Chat 模式）
-  - 侧边栏参数面板（热切换模型、自定义 Prompt、温度调节等）
-- **多模型 & 多提供商支持** —— 开箱即用支持 Anthropic, DeepSeek, 阿里百炼(DashScope), 字节豆包(Doubao), Google Gemini, OpenAI 等。
-- **可拓展的插件架构** —— 新增Agent 或 工具只需添加对应目录，系统会自动注册。内置 `tavily_search` 等工具以及沙箱文件读写（沙箱环境）。
+### 🧠 Agent Loop 自主循环
+- **自主决策**：Agent 根据用户需求自主选择工具，无需人工编排步骤
+- **多轮迭代**：每个任务最多 25 轮自动迭代（调用工具 → 分析结果 → 决定下一步），直到任务完成
+- **实时可视化**：右侧工作区面板实时展示每一轮的工具调用、参数和结果
+- **安全机制**：破坏性操作（写入/删除文件）自动触发人工确认，读取类操作自动执行
 
-## 🏗️ 架构概览
+### 💬 双引擎模式
+| 模式 | 说明 |
+|------|------|
+| **Agent 模式** | 自主循环，自动调用 Web 搜索、文件读写等工具完成任务 |
+| **对话模式** | 纯粹的流式聊天，支持上传文档（PDF/Word）和图片 |
 
-```text
-[ 前端 React + Vite ] <== Server-Sent Events (SSE) ==> [ 后端 FastAPI ]
-                                                              │
-后端分层：                                                     │
-1. Server.py - 路由，会话，持久化，状态机                           │
-2. Orchestrator - 意图理解 → 规划 → 调度 → 汇总                    │
-3. Agent Registry - 子调度节点（WebSearch, Analysis, Writing 等） │
-4. Tool Registry - 内部系统与外部API工具（Tavily, SandboxIO等）    │
-5. LLM Client - 统一封装的多 Provider LLM 适配器                   │
+### 🔧 内置工具
+| 工具 | 权限级别 | 说明 |
+|------|---------|------|
+| `web_search` | 🟢 自动 | 联网搜索（Tavily API），支持多关键词交叉验证 |
+| `read_file` | 🟢 自动 | 读取本地文件内容 |
+| `list_directory` | 🟢 自动 | 列出目录下的文件和子目录 |
+| `write_file` | 🟡 需确认 | 写入/创建文件（自动快照备份） |
+
+### 🌐 多模型支持
+开箱即用支持主流 LLM 提供商：
+- Anthropic (Claude) / Google (Gemini) / OpenAI / DeepSeek
+- 阿里百炼 DashScope（GLM、Kimi、MiniMax 等）
+- 字节豆包 Doubao / 小米 MiLM
+
+## 🏗️ 架构
+
+```
+┌─────────────────┐     SSE 事件流     ┌──────────────────────────────┐
+│  React + Vite   │ ◄═══════════════► │  FastAPI (server.py)         │
+│  前端 Web UI     │                   │  ├── /api/chat/agent  (Agent)│
+└─────────────────┘                   │  ├── /api/chat/stream (Chat) │
+                                      │  └── /api/sessions/* (会话)  │
+                                      └─────────┬────────────────────┘
+                                                │
+                              ┌─────────────────┼─────────────────┐
+                              │           Agent Loop              │
+                              │  ┌───────────────────────────┐    │
+                              │  │ while turn < 25:          │    │
+                              │  │   ① compact check         │    │
+                              │  │   ② build system prompt   │    │
+                              │  │   ③ LLM call (with tools) │    │
+                              │  │   ④ parse response        │    │
+                              │  │   ⑤ tool_use → Pipeline   │    │
+                              │  │   ⑥ append result → next  │    │
+                              │  └───────────────────────────┘    │
+                              │                                   │
+                              │  Tool Pipeline (6 阶段):          │
+                              │  render → permission → preHook   │
+                              │  → checkpoint → execute → postHook│
+                              └───────────────────────────────────┘
+```
+
+## 📁 项目结构
+
+```
+MultiAgent/
+├── server.py              # FastAPI 服务入口
+├── config.yaml            # 系统配置（Provider/模型/参数）
+├── start.sh               # 一键启动脚本
+├── requirements.txt       # Python 依赖
+│
+├── agent/                 # Agent Loop 核心
+│   ├── loop.py            # 自主循环引擎（25 轮上限）
+│   ├── tool_pipeline.py   # 6 阶段工具执行管线
+│   ├── state.py           # AgentState 可序列化状态
+│   └── instructions/      # 可切换的系统提示词模板
+│       ├── default.md     # 通用助手
+│       └── analyst.md     # 数据分析师
+│
+├── tools/                 # 工具层（OpenAI Function Calling 协议）
+│   ├── base.py            # BaseTool 基类
+│   ├── registry.py        # ToolRegistry 统一注册中心
+│   ├── web_search.py      # 联网搜索工具
+│   └── file_ops.py        # 文件操作工具集
+│
+├── core/                  # 基础设施
+│   ├── llm_client.py      # 统一 LLM 适配器（多 Provider）
+│   ├── config.py          # 配置管理（热重载）
+│   └── logger.py          # 结构化日志（彩色控制台 + 按日期文件）
+│
+├── services/              # 业务服务
+│   ├── sessions.py        # 会话持久化（JSON 文件存储）
+│   ├── chat.py            # 流式聊天服务
+│   ├── auth.py            # 用户认证（JWT）
+│   └── providers/         # LLM Provider 适配器
+│
+├── frontend/              # React + Vite 前端
+│   └── src/
+│       ├── components/    # UI 组件
+│       ├── stores/        # Zustand 状态管理
+│       └── utils/         # API 工具函数
+│
+├── logs/                  # 日志（按日期命名，如 2026-03-30.log）
+├── sessions/              # 会话数据持久化目录
+└── outputs/               # Agent 输出文件
 ```
 
 ## 🚀 快速开始
 
 ### 1. 环境准备
 
-项目后端使用 Python 3.11+，前端使用 Node.js。建议使用 Conda 隔离环境：
-
 ```bash
-# 1. 创建 Python 环境
+# 创建 Conda 环境
 conda create -n multiagent python=3.11 -y
 conda activate multiagent
+
+# 安装 Python 依赖
 pip install -r requirements.txt
 
-# 2. 安装前端依赖
-cd frontend
-npm install
-cd ..
+# 安装前端依赖
+cd frontend && npm install && cd ..
 ```
 
 ### 2. 配置 API Key
 
-系统依赖大模型 API，同时也依赖搜索 API（默认需要 Tavily 搜索）：
-
 ```bash
-# 从模板复制环境变量并填入你的 Key
+# 复制环境变量模板
 cp .env.example .env
 ```
-*(注意：请确保至少配置了一个你想使用的大模型 Provider 的 API Key)*
+
+编辑 `.env` 文件，填入你的 API Key：
+```env
+DASHSCOPE_API_KEY=sk-xxx        # 阿里百炼（推荐，一个 Key 可用多个模型）
+TAVILY_API_KEY=tvly-xxx          # Tavily 搜索（Agent 联网搜索需要）
+# 可选
+ANTHROPIC_API_KEY=sk-xxx
+DEEPSEEK_API_KEY=sk-xxx
+DOUBAO_API_KEY=xxx
+```
 
 ### 3. 一键启动
 
-我们提供了一个启动脚本来同时拉起后端的 FastAPI 和前端的 Vite 服务：
-
 ```bash
-# 添加执行权限（仅首次需执行）
 chmod +x start.sh
 
-# 启动服务
-./start.sh start
+./start.sh start     # 启动前后端
+./start.sh status    # 查看服务状态
+./start.sh restart   # 重启
+./start.sh stop      # 停止
 ```
-- 前端地址：`http://localhost:3000`
-- 后端 API：`http://localhost:9000`
 
-要停止或重启服务：
+启动成功后：
+- 🌐 前端界面：`http://localhost:3000`
+- 📡 后端 API：`http://localhost:9000/docs`
+
+### 4. 用户管理
+
+首次使用需创建用户：
 ```bash
-./start.sh stop
-./start.sh restart
+conda activate multiagent
+python manage_users.py add <username> <password>
 ```
 
-## ⚙️ 系统配置 (`config.yaml`)
+## ⚙️ 配置说明
 
-项目核心系统配置均在 `config.yaml` 中，支持热重载（无需重启服务即可生效）：
+### `config.yaml`
 
-- **Provider & Model 注册**：预置了各大模型厂商的模型名和基准参数。你可以随时添加对应的新模型。
-- **默认 Agent 关联 (`role_models`)**：可以分别指派 Orchestrator、Writing、Search 等使用不同的大模型（例如 Orchestrator 使用更强的模型，而 Search 侧使用更快便宜的模型）。
-- **运行参数 (`default_params`)**：对话轮数上限（防止 Token 爆表）、Temperature 控制等。
+```yaml
+providers:
+  dashscope:                       # Provider 名称
+    base_url: https://...          # API 端点
+    models: [glm-5, kimi-k2.5]    # 可用模型列表
 
-## 🧩 添加新的子 Agent
+role_models:                       # 各角色使用的模型
+  orchestrator:                    # Agent Loop 使用
+    provider: dashscope
+    model: glm-5
 
-系统基于松耦合架构设计。只需要 3 步即可新增属于你的专业 Agent：
-1. 在 `agents/` 下新建一个目录（如 `agents/coder/`）。
-2. 在目录下添加 `manifest.yaml` (定义输入输出类型和工具权限)。
-3. 在目录下添加 `agent.py`，继承 `BaseAgent` 并在 `execute()` 中实现你的 Agent 逻辑；配套写上你的 `prompts.md` 调优即可。
+agent:
+  instructions: default            # 系统提示词模板（对应 agent/instructions/*.md）
 
-重启服务后，Orchestrator 将自动发现你的新 Agent 并能编排它！
+default_params:                    # 默认生成参数
+  max_tokens: 100000
+  temperature: 1.0
+```
+
+## 🔌 添加新工具
+
+只需 3 步即可扩展工具：
+
+```python
+# tools/my_tool.py
+from tools.base import BaseTool
+
+class MyTool(BaseTool):
+    name = "my_tool"
+    description = "描述工具功能"
+    permission = "auto"  # auto | confirm
+    
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "查询内容"}
+        },
+        "required": ["query"]
+    }
+    
+    async def execute(self, **kwargs) -> str:
+        # 实现工具逻辑
+        return "结果"
+```
+
+然后在 `server.py` 中注册：
+```python
+from tools.my_tool import MyTool
+new_tool_registry.register(MyTool())
+```
+
+## 📋 技术栈
+
+| 层 | 技术 |
+|---|------|
+| 前端 | React 19 + Vite + Zustand + Vanilla CSS |
+| 后端 | Python 3.11 + FastAPI + SSE |
+| LLM 协议 | OpenAI Chat Completions (Function Calling) |
+| 搜索 | Tavily API |
+| 认证 | JWT (PyJWT) |
+| 数据 | JSON 文件持久化 |
 
 ## 📄 License
+
 MIT
