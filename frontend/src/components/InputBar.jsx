@@ -150,9 +150,12 @@ export default function InputBar() {
                 useStore.setState({ waitingAnswer: false })
                 const controller = new AbortController()
                 abortRef.current = controller
+                const token = localStorage.getItem('auth_token')
+                const reqHeaders = { 'Content-Type': 'application/json' }
+                if (token) reqHeaders['Authorization'] = `Bearer ${token}`
                 fetch('/api/task/answer', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: reqHeaders,
                     body: JSON.stringify({ answer: msg, session_id: currentSessionId }),
                     signal: controller.signal,
                 }).then(async res => {

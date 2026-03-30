@@ -26,3 +26,4 @@ frontend/dist/
 # Server and runtime
 *.pid
 sessions/
+users.json

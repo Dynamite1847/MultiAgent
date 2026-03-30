@@ -16,9 +16,12 @@ const useStore = create((set, get) => ({
         // 持久化到当前 session
         const sid = get().activeSessionId
         if (sid) {
+            const token = localStorage.getItem('auth_token')
+            const headers = { 'Content-Type': 'application/json' }
+            if (token) headers['Authorization'] = `Bearer ${token}`
             fetch(`/api/sessions/${sid}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ mode: newMode ? 'agent' : 'chat' }),
             }).catch(() => {})
         }
@@ -86,18 +89,24 @@ const useStore = create((set, get) => ({
 
         if (action === 'cancel') {
             set({ plan: null, workflowSteps: [], stepModels: {}, llmLogs: [] })
+            const token = localStorage.getItem('auth_token')
+            const headers = { 'Content-Type': 'application/json' }
+            if (token) headers['Authorization'] = `Bearer ${token}`
             fetch('/api/task/confirm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ action: 'cancel' })
             }).catch(() => {})
             return
         }
 
         if (action === 'modify') {
+            const token = localStorage.getItem('auth_token')
+            const headers = { 'Content-Type': 'application/json' }
+            if (token) headers['Authorization'] = `Bearer ${token}`
             fetch('/api/task/confirm', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ action: 'modify', modification })
             }).then(r => r.json()).then(data => {
                 if (data.plan) {
@@ -168,16 +177,18 @@ const useStore = create((set, get) => ({
     // ═══ 初始化 ═══
     init: async () => {
         try {
-            const [cfg, status, sessions] = await Promise.all([
+            const [cfg, status, sessions, agentCfg] = await Promise.all([
                 fetchConfig(),
                 fetchStatus(),
                 fetchSessions(),
+                fetchAgentConfig().catch(() => null),
             ])
             const dp = cfg.default_params || {}
             set({
                 config: cfg,
                 systemStatus: status,
                 sessions,
+                agentConfig: agentCfg,
                 params: {
                     provider: cfg.default_provider,
                     model: cfg.default_model,
@@ -228,7 +239,10 @@ const useStore = create((set, get) => ({
 
             // 加载该 session 的工作流数据
             try {
-                const wfRes = await fetch(`/api/sessions/${sessionId}/workflow`)
+                const token = localStorage.getItem('auth_token')
+                const wfHeaders = {}
+                if (token) wfHeaders['Authorization'] = `Bearer ${token}`
+                const wfRes = await fetch(`/api/sessions/${sessionId}/workflow`, { headers: wfHeaders })
                 if (wfRes.ok) {
                     const wf = await wfRes.json()
                     if (wf && (wf.plan || (wf.history && wf.history.length > 0) || (wf.steps && wf.steps.length > 0))) {

@@ -1,90 +1,56 @@
-# ════════════════════════════════════════
-# PM Multi-Agent Workbench 统一配置文件
-# ════════════════════════════════════════
-# API Key 从 .env 环境变量读取
-# 格式: {PROVIDER_NAME}_API_KEY (大写)
-
-# ────────────────────────────────
-# Provider 配置
-# ────────────────────────────────
 providers:
   anthropic:
-    base_url: "https://api.linkapi.ai/v1"
+    base_url: https://api.linkapi.ai/v1
     json_format_mode: chat_completions
     models:
-      - claude-opus-4-6-thinking
-
+    - claude-opus-4-6-thinking
   google:
-    base_url: "https://api.linkapi.ai/v1"
+    base_url: https://api.linkapi.ai/v1
     json_format_mode: chat_completions
     models:
-      - gemini-3.1-pro-preview
-
+    - gemini-3.1-pro-preview
   openai:
-    base_url: "https://api.deepseek.com/v1"
+    base_url: https://api.deepseek.com/v1
     json_format_mode: chat_completions
     models:
-      - deepseek-reasoner
-
+    - deepseek-reasoner
   doubao:
-    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    base_url: https://ark.cn-beijing.volces.com/api/v3
     json_format_mode: prompt
     models:
-      - doubao-seed-2-0-pro-260215
-
+    - doubao-seed-2-0-pro-260215
   dashscope:
-    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     json_format_mode: chat_completions
     models:
-      - MiniMax-M2.5
-      - glm-5
-      - kimi-k2.5
-      - MiniMax/MiniMax-M2.7
-
-# ────────────────────────────────
-# 角色 → 模型 映射 (Agent 模式)
-# 格式: provider/model
-# ────────────────────────────────
+    - MiniMax-M2.5
+    - glm-5
+    - kimi-k2.5
+    - MiniMax/MiniMax-M2.7
+  xiaomi:
+    base_url: https://api.xiaomimimo.com/v1
+    json_format_mode: chat_completions
+    models:
+    - mimo-v2-pro
 role_models:
   orchestrator: dashscope/glm-5
-  web_search:   dashscope/glm-5
-  analysis:     dashscope/glm-5
-  writing:      dashscope/glm-5
-  interview:    dashscope/glm-5
-
-# ────────────────────────────────
-# 直接对话 默认配置
-# ────────────────────────────────
-default_provider: dashscope
-default_model: MiniMax-M2.5
-
-global_system_prompt: |
-  # USER.md - About Your Human
-  _Learn about the person you're helping. Update this as you go._
-  - **Name:** [Your Name]
-  - **What to call them:** [Your Name]
-  - **Timezone:** GMT+8 (Asia/Shanghai)
-  - **Notes:** 工作语言为中文
-  ## Context
-  - 工作领域：[Your Field]
-  - 需要的支持：[Your Expectations]
-  - 偏好风格：专业、直接、少废话
-
+  web_search: dashscope/glm-5
+  analysis: dashscope/glm-5
+  writing: dashscope/glm-5
+  interview: dashscope/glm-5
+default_provider: anthropic
+default_model: claude-opus-4-6-thinking
+global_system_prompt: ''
 default_params:
   max_tokens: 100000
-  temperature: 1.0
-  top_p: 1.0
-  frequency_penalty: 0.0
-
+  temperature: 1
+  top_p: 1
+  frequency_penalty: 0
 context_strategy: rounds
 context_rounds: 10
 context_token_threshold: 8000
 max_single_message_tokens: 30000
 max_total_tokens: 60000
-
-# ────────────────────────────────
-# 系统参数
-# ────────────────────────────────
 system:
   log_level: DEBUG
   output_dir: ./outputs

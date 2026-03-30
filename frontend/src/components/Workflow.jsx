@@ -1,8 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import useStore from '../stores/useStore'
 import WorkflowNode from './WorkflowNode'
 import LlmLogPanel from './LlmLogPanel'
-import { pauseTask, resumeTask } from '../utils/api'
+import { pauseTask, resumeTask, updateAgentConfig, fetchAgentConfig } from '../utils/api'
 
 export default function Workflow() {
     const plan = useStore(s => s.plan)
@@ -15,6 +15,10 @@ export default function Workflow() {
     const reviewNextStep = useStore(s => s.reviewNextStep)
     const handleAgentEvent = useStore(s => s.handleAgentEvent)
     const activeSessionId = useStore(s => s.activeSessionId)
+    const agentConfig = useStore(s => s.agentConfig)
+    const setAgentConfig = useStore(s => s.setAgentConfig)
+    const isStreamingMap = useStore(s => s.isStreamingMap)
+    const addToast = useStore(s => s.addToast)
 
     const [showModify, setShowModify] = useState(false)
     const [modification, setModification] = useState('')
@@ -24,17 +28,79 @@ export default function Workflow() {
     const [editingOutput, setEditingOutput] = useState(false)
     const [editContent, setEditContent] = useState('')
     const [reviewLoading, setReviewLoading] = useState(false)
+    const [modelSaving, setModelSaving] = useState(false)
+
+    // 当前 orchestrator 模型
+    const currentRoleModel = agentConfig?.role_models?.orchestrator || ''
+    const currentParts = currentRoleModel.split('/')
+    const currentProvider = currentParts[0] || ''
+    const currentModel = currentParts.slice(1).join('/') || ''
+
+    // 可用的提供商和模型
+    const availableProviders = agentConfig?.available_providers || {}
+    const providerKeys = Object.keys(availableProviders)
+    const currentProviderModels = availableProviders[currentProvider]?.models || []
+
+    // 是否正在执行任务
+    const isExecuting = activeSessionId ? (isStreamingMap[activeSessionId] || false) : false
+    const hasActivePlan = plan?.steps?.length > 0 || workflowSteps.length > 0
+
+    const handleProviderChange = async (newProvider) => {
+        const firstModel = availableProviders[newProvider]?.models?.[0] || ''
+        if (!firstModel) return
+        await applyModelChange(newProvider, firstModel)
+    }
+
+    const handleModelChange = async (newModel) => {
+        await applyModelChange(currentProvider, newModel)
+    }
+
+    const applyModelChange = async (provider, model) => {
+        const newRoleModel = `${provider}/${model}`
+        setModelSaving(true)
+        try {
+            // 更新所有角色的模型
+            const newRoleModels = {}
+            if (agentConfig?.role_models) {
+                for (const role of Object.keys(agentConfig.role_models)) {
+                    newRoleModels[role] = newRoleModel
+                }
+            } else {
+                newRoleModels['orchestrator'] = newRoleModel
+            }
+            const result = await updateAgentConfig(newRoleModels)
+            // 更新本地 agentConfig
+            setAgentConfig({
+                ...agentConfig,
+                role_models: result.role_models || newRoleModels,
+            })
+            addToast(`模型已切换为 ${model}`, 'success')
+        } catch (e) {
+            addToast('模型切换失败: ' + e.message, 'error')
+        } finally {
+            setModelSaving(false)
+        }
+    }
 
     const sendReviewAction = useCallback(async (action) => {
         setReviewLoading(true)
         useStore.setState({ reviewingStepId: null, reviewNextStep: null })
 
         try {
+            const token = localStorage.getItem('auth_token')
+            const headers = { 'Content-Type': 'application/json' }
+            if (token) headers['Authorization'] = `Bearer ${token}`
+
             const res = await fetch('/api/task/answer', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ answer: action, session_id: activeSessionId }),
             })
+            
+            if (res.status === 401) {
+                useStore.setState({ isAuthModalOpen: true }) // Handle 401 generically or let handleLogin take over
+                return
+            }
             const reader = res.body.getReader()
             const decoder = new TextDecoder()
             let buffer = ''
@@ -62,10 +128,53 @@ export default function Workflow() {
         }
     }, [activeSessionId, handleAgentEvent])
 
+    // 提供商显示名映射
+    const providerLabels = {
+        anthropic: '⬡ Anthropic (Claude)',
+        google: '◈ Google (Gemini)',
+        openai: '○ DeepSeek / OpenAI',
+        doubao: '☁️ Doubao (火山)',
+        dashscope: '🔮 DashScope (百炼)',
+        xiaomi: '📱 Xiaomi (Mimo)',
+    }
+
+    // 模型选择器组件
+    const ModelSelector = () => (
+        <div className="agent-model-selector">
+            <div className="agent-model-header">
+                <span className="agent-model-label">🤖 Agent 模型</span>
+                {modelSaving && <span className="agent-model-saving">保存中...</span>}
+            </div>
+            <div className="agent-model-selects">
+                <select
+                    className="form-select agent-model-provider"
+                    value={currentProvider}
+                    onChange={e => handleProviderChange(e.target.value)}
+                    disabled={isExecuting || modelSaving}
+                >
+                    {providerKeys.map(p => (
+                        <option key={p} value={p}>{providerLabels[p] || p}</option>
+                    ))}
+                </select>
+                <select
+                    className="form-select agent-model-model"
+                    value={currentModel}
+                    onChange={e => handleModelChange(e.target.value)}
+                    disabled={isExecuting || modelSaving}
+                >
+                    {currentProviderModels.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                    ))}
+                </select>
+            </div>
+        </div>
+    )
+
     // 没有 plan 也没有历史时显示空状态
     if (!plan && workflowSteps.length === 0 && workflowHistory.length === 0) {
         return (
             <div className="workflow">
+                {agentConfig && <ModelSelector />}
                 <div className="workflow-empty">
                     <div className="workflow-empty-icon">🧠</div>
                     <h4>Agent 工作区</h4>
@@ -82,9 +191,8 @@ export default function Workflow() {
 
     return (
         <div className="workflow">
-            {/* 当前计划 */}
-            {(plan?.steps?.length > 0 || workflowSteps.length > 0) && (
-                <>
+            {/* 模型选择器 */}
+            {agentConfig && !isExecuting && <ModelSelector />}
                     <div className="workflow-header">
                         <h3>📋 执行计划</h3>
                         {running && (
@@ -231,8 +339,6 @@ export default function Workflow() {
                             </div>
                         ))}
                     </div>
-                </>
-            )}
 
             {/* LLM 调用日志 */}
             <LlmLogPanel />

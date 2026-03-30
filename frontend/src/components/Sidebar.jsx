@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import useStore from '../stores/useStore'
 import { deleteSession, updateSession } from '../utils/api'
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose, currentUser, onLogout }) {
     const {
         sessions, activeSessionId, setActiveSessionId,
         setActiveSession, setShowSettings,
@@ -46,14 +46,25 @@ export default function Sidebar() {
         await loadSessions()
     }
 
+    const handleSelectSession = (id) => {
+        selectSession(id)
+        onClose?.() // Close sidebar on mobile
+    }
+
+    const handleNewSession = () => {
+        createNewSession()
+        onClose?.()
+    }
+
     return (
-        <div className="sidebar">
+        <div className={`sidebar ${isOpen ? 'open' : ''}`}>
             <div className="sidebar-header">
                 <div className="sidebar-logo">
                     <div className="sidebar-logo-icon">🤖</div>
                     <span className="sidebar-logo-text">Multi-Agent</span>
+                    <button className="sidebar-close-btn" onClick={onClose}>✕</button>
                 </div>
-                <button className="new-session-btn" onClick={createNewSession}>
+                <button className="new-session-btn" onClick={handleNewSession}>
                     <span>+</span> 新对话
                 </button>
             </div>
@@ -79,7 +90,7 @@ export default function Sidebar() {
                     <div
                         key={s.id}
                         className={`session-item ${activeSessionId === s.id ? 'active' : ''}`}
-                        onClick={() => selectSession(s.id)}
+                        onClick={() => handleSelectSession(s.id)}
                     >
                         <span className="session-item-icon">💬</span>
                         <div className="session-item-info">
@@ -114,6 +125,13 @@ export default function Sidebar() {
             </div>
 
             <div className="sidebar-footer">
+                {currentUser && (
+                    <div className="sidebar-user">
+                        <span className="sidebar-user-avatar">👤</span>
+                        <span className="sidebar-user-name">{currentUser.display_name}</span>
+                        <button className="sidebar-logout-btn" onClick={onLogout} title="退出登录">↗</button>
+                    </div>
+                )}
                 <button className="settings-btn" onClick={() => setShowSettings(true)}>
                     ⚙️ 设置 / API Key
                 </button>

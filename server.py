@@ -9,9 +9,10 @@ import sys
 import logging
 
 from typing import Optional, List
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # 确保项目根目录在 path 中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +40,7 @@ from services.models import (
     SessionCreate, SessionUpdate, ChatRequest as DirectChatRequest,
     TokenCountRequest
 )
+from services.auth import authenticate, create_token, verify_token, init_default_users
 
 # ═══════════════════════════════════════
 # Logging — 使用 MultiAgent 的 logger 风格
@@ -83,6 +85,9 @@ logger.info("Web Server 初始化完成")
 # FastAPI App
 # ═══════════════════════════════════════
 
+# 初始化默认用户
+init_default_users()
+
 app = FastAPI(title="Multi-Agent Workbench API", version="2.0.0")
 
 app.add_middleware(
@@ -92,6 +97,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ═══════════════════════════════════════
+# Auth 中间件
+# ═══════════════════════════════════════
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """JWT authentication for all /api/* except /api/auth/*."""
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # 不拦截: 非 API 路由、auth 路由、OPTIONS 预检
+        if not path.startswith("/api") or path.startswith("/api/auth") or request.method == "OPTIONS":
+            return await call_next(request)
+
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse({"detail": "未登录"}, status_code=401)
+
+        token = auth_header[7:]
+        payload = verify_token(token)
+        if not payload:
+            return JSONResponse({"detail": "登录已过期，请重新登录"}, status_code=401)
+
+        # 注入用户信息到 request.state
+        request.state.user_id = payload["user_id"]
+        request.state.username = payload["username"]
+        request.state.display_name = payload.get("display_name", payload["username"])
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
 
 
 # ═══════════════════════════════════════
@@ -124,8 +160,42 @@ class ConfigUpdate(BaseModel):
 
 
 # ═══════════════════════════════════════
-# SSE 工具
+# Auth 端点
 # ═══════════════════════════════════════
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest):
+    user = authenticate(body.username, body.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token = create_token(user)
+    return {
+        "token": token,
+        "user": user,
+    }
+
+
+@app.get("/api/auth/me")
+def get_me(request: Request):
+    return {
+        "user_id": request.state.user_id,
+        "username": request.state.username,
+        "display_name": request.state.display_name,
+    }
+
+
+# ═══════════════════════════════════════
+# 工具函数
+# ═══════════════════════════════════════
+
+def get_user_id(request: Request) -> str:
+    return getattr(request.state, "user_id", "default")
+
 
 def sse_event(event_type: str, data: dict) -> str:
     payload = json.dumps({"type": event_type, "data": data}, ensure_ascii=False)
@@ -162,49 +232,49 @@ def get_status():
 # ═══════════════════════════════════════
 
 @app.get("/api/sessions")
-def get_sessions():
-    return list_sessions()
+def get_sessions(request: Request):
+    return list_sessions(user_id=get_user_id(request))
 
 
 @app.post("/api/sessions")
-def post_session(body: SessionCreate):
-    return create_session(name=body.name, system_prompt=body.system_prompt or "", params=body.params)
+def post_session(body: SessionCreate, request: Request):
+    return create_session(name=body.name, system_prompt=body.system_prompt or "", params=body.params, user_id=get_user_id(request))
 
 
 @app.get("/api/sessions/{session_id}")
-def get_session_detail(session_id: str):
-    s = get_session(session_id)
+def get_session_detail(session_id: str, request: Request):
+    s = get_session(session_id, user_id=get_user_id(request))
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
     return s
 
 
 @app.patch("/api/sessions/{session_id}")
-def patch_session(session_id: str, body: SessionUpdate):
+def patch_session(session_id: str, body: SessionUpdate, request: Request):
     s = update_session(session_id, name=body.name, system_prompt=body.system_prompt,
-                        params=body.params, mode=body.mode)
+                        params=body.params, mode=body.mode, user_id=get_user_id(request))
     if not s:
         raise HTTPException(status_code=404, detail="Session not found")
     return s
 
 
 @app.delete("/api/sessions/{session_id}")
-def del_session(session_id: str):
-    if not delete_session(session_id):
+def del_session(session_id: str, request: Request):
+    if not delete_session(session_id, user_id=get_user_id(request)):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
 
 
 @app.delete("/api/sessions/{session_id}/messages")
-def del_messages(session_id: str):
-    if not clear_messages(session_id):
+def del_messages(session_id: str, request: Request):
+    if not clear_messages(session_id, user_id=get_user_id(request)):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
 
 
 @app.delete("/api/sessions/{session_id}/messages/last")
-def del_last_messages(session_id: str, count: int = 2):
-    last_user = pop_last_messages(session_id, count)
+def del_last_messages(session_id: str, request: Request, count: int = 2):
+    last_user = pop_last_messages(session_id, count, user_id=get_user_id(request))
     if last_user is None:
         raise HTTPException(status_code=404, detail="Session not found or no messages")
     return {"ok": True, "last_user_message": last_user}
@@ -215,8 +285,8 @@ def del_last_messages(session_id: str, count: int = 2):
 # ═══════════════════════════════════════
 
 @app.get("/api/sessions/{session_id}/workflow")
-def get_session_workflow(session_id: str):
-    return get_workflow(session_id)
+def get_session_workflow(session_id: str, request: Request):
+    return get_workflow(session_id, user_id=get_user_id(request))
 
 
 # ═══════════════════════════════════════
@@ -224,7 +294,7 @@ def get_session_workflow(session_id: str):
 # ═══════════════════════════════════════
 
 @app.post("/api/chat/stream")
-async def chat_stream(body: DirectChatRequest):
+async def chat_stream(body: DirectChatRequest, request: Request):
     """直接对话 SSE 流（和 ChatBot 一样）"""
     cfg = load_provider_config()
     default_params = cfg.get("default_params", {})
@@ -236,6 +306,7 @@ async def chat_stream(body: DirectChatRequest):
     return StreamingResponse(
         stream_chat_response(
             session_id=body.session_id,
+            user_id=get_user_id(request),
             user_message=body.message,
             files=body.files,
             provider_name=body.provider,
@@ -259,20 +330,21 @@ async def chat_stream(body: DirectChatRequest):
 # ═══════════════════════════════════════
 
 @app.post("/api/chat/agent")
-async def agent_chat(body: AgentChatRequest):
+async def agent_chat(body: AgentChatRequest, request: Request):
     """Agent 模式 SSE 流"""
     logger.info(f"Agent 对话: session={body.session_id}, message={body.message[:100]}")
+    user_id = get_user_id(request)
 
     # 持久化用户消息到 session & 自动设置 mode
     is_first_agent_msg = False
     if body.session_id:
-        append_message(body.session_id, "user", body.message)
+        append_message(body.session_id, "user", body.message, user_id=user_id)
         # 自动设为 agent 模式
-        session_data = get_session(body.session_id)
+        session_data = get_session(body.session_id, user_id=user_id)
         if session_data:
             is_first_agent_msg = len([m for m in session_data.get("messages", []) if m["role"] == "user"]) <= 1
             if session_data.get("mode") != "agent":
-                update_session(body.session_id, mode="agent")
+                update_session(body.session_id, user_id=user_id, mode="agent")
 
     # 拼接文件内容到消息中
     agent_message = body.message
@@ -289,7 +361,7 @@ async def agent_chat(body: AgentChatRequest):
     # 将 session 历史加载到 orchestrator 的对话上下文
     if body.session_id:
         try:
-            session = get_session(body.session_id)
+            session = get_session(body.session_id, user_id=user_id)
             if session:
                 history_msgs = session.get("messages", [])
                 orchestrator.conversation_history = [
@@ -302,7 +374,7 @@ async def agent_chat(body: AgentChatRequest):
 
     # 新任务开始前，归档现有的工作流
     if body.session_id:
-        archive_current_workflow(body.session_id)
+        archive_current_workflow(body.session_id, user_id=user_id)
 
     async def event_generator():
         workflow_steps_acc = []
@@ -318,12 +390,12 @@ async def agent_chat(body: AgentChatRequest):
                     if etype in ("reply", "summary"):
                         content = event.get("data", {}).get("content", "")
                         if content:
-                            append_message(sid, "assistant", content)
+                            append_message(sid, "assistant", content, user_id=user_id)
                     elif etype == "clarify":
                         questions = event.get("data", {}).get("questions", [])
                         if questions:
                             content = "我需要了解更多信息：\n\n" + "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
-                            append_message(sid, "assistant", content)
+                            append_message(sid, "assistant", content, user_id=user_id)
 
                     # 持久化工作流数据
                     elif etype == "plan":
@@ -331,28 +403,28 @@ async def agent_chat(body: AgentChatRequest):
                             "plan": event.get("data", {}),
                             "steps": [],
                             "status": "waiting_confirm",
-                        })
+                        }, user_id=user_id)
                     elif etype == "step_result":
                         step_data = event.get("data", {})
                         workflow_steps_acc.append(step_data)
-                        update_workflow_step(sid, step_data.get("step_id"), step_data)
+                        update_workflow_step(sid, step_data.get("step_id"), step_data, user_id=user_id)
                         save_workflow(sid, {
                             "plan": orchestrator.plan,
                             "steps": workflow_steps_acc,
                             "status": "executing",
-                        })
+                        }, user_id=user_id)
                     elif etype == "done" and workflow_steps_acc:
                         save_workflow(sid, {
                             "plan": orchestrator.plan,
                             "steps": workflow_steps_acc,
                             "status": "done",
-                        })
+                        }, user_id=user_id)
                     elif etype in ("step_pause", "step_review"):
                         save_workflow(sid, {
                             "plan": orchestrator.plan,
                             "steps": workflow_steps_acc,
                             "status": "paused",
-                        })
+                        }, user_id=user_id)
 
                 await asyncio.sleep(0)
 
@@ -366,7 +438,7 @@ async def agent_chat(body: AgentChatRequest):
                 if not first_reply:
                     first_reply = orchestrator.plan.get("goal", "") if orchestrator.plan else ""
                 from services.chat import generate_title
-                asyncio.create_task(generate_title(sid, body.message, first_reply))
+                asyncio.create_task(generate_title(sid, body.message, first_reply, user_id=user_id))
 
         except Exception as e:
             logger.error(f"Agent stream error: {e}")
@@ -400,12 +472,21 @@ class RetryRequest(BaseModel):
 
 
 @app.post("/api/task/retry")
-async def retry_step(body: RetryRequest):
+async def retry_step(body: RetryRequest, request: Request):
     """重试失败的步骤"""
+    user_id = get_user_id(request)
+    sid = body.session_id
+
     async def event_generator():
         try:
             async for event in orchestrator.retry_step(body.step_id):
                 yield sse_event(event["type"], event.get("data", {}))
+
+                if sid:
+                    etype = event["type"]
+                    if etype == "step_result":
+                        step_data = event.get("data", {})
+                        update_workflow_step(sid, step_data.get("step_id"), step_data, user_id=user_id)
         except Exception as e:
             logger.error(f"Retry stream error: {e}")
             yield sse_event("error", {"message": str(e)})
@@ -419,11 +500,12 @@ async def retry_step(body: RetryRequest):
 
 
 @app.post("/api/task/confirm")
-async def confirm_task(body: ConfirmRequest):
+async def confirm_task(body: ConfirmRequest, request: Request):
+    user_id = get_user_id(request)
     # 如果 orchestrator 没有计划但 session 有等待确认的计划，从 session 恢复
     if not orchestrator.plan and body.session_id:
         from services.sessions import get_session
-        session = get_session(body.session_id)
+        session = get_session(body.session_id, user_id=user_id)
         if session:
             wf = session.get("workflow", {})
             if wf.get("status") == "waiting_confirm" and wf.get("plan"):
@@ -471,28 +553,28 @@ async def confirm_task(body: ConfirmRequest):
                     if etype == "summary":
                         content = event.get("data", {}).get("content", "")
                         if content:
-                            append_message(sid, "assistant", content)
+                            append_message(sid, "assistant", content, user_id=user_id)
                     elif etype == "step_result":
                         step_data = event.get("data", {})
                         workflow_steps.append(step_data)
-                        update_workflow_step(sid, step_data.get("step_id"), step_data)
+                        update_workflow_step(sid, step_data.get("step_id"), step_data, user_id=user_id)
                         save_workflow(sid, {
                             "plan": orchestrator.plan,
                             "steps": workflow_steps,
                             "status": "executing",
-                        })
+                        }, user_id=user_id)
                     elif etype == "done":
                         save_workflow(sid, {
                             "plan": orchestrator.plan,
                             "steps": workflow_steps,
                             "status": "done",
-                        })
+                        }, user_id=user_id)
                     elif etype in ("step_pause", "step_review"):
                         save_workflow(sid, {
                             "plan": orchestrator.plan,
                             "steps": workflow_steps,
                             "status": "paused",
-                        })
+                        }, user_id=user_id)
                 await asyncio.sleep(0)
         except Exception as e:
             logger.error(f"Execution error: {e}")
@@ -507,12 +589,13 @@ async def confirm_task(body: ConfirmRequest):
 
 
 @app.post("/api/task/answer")
-async def answer_clarification(body: AnswerRequest):
+async def answer_clarification(body: AnswerRequest, request: Request):
     sid = body.session_id
+    user_id = get_user_id(request)
 
     # 持久化用户回答
     if sid:
-        append_message(sid, "user", body.answer)
+        append_message(sid, "user", body.answer, user_id=user_id)
 
     # ── 情况 1: 工作流执行中暂停（step_pause）→ 恢复执行 ──
     if orchestrator.is_paused():
@@ -527,29 +610,29 @@ async def answer_clarification(body: AnswerRequest):
                         if etype == "step_result":
                             step_data = event.get("data", {})
                             workflow_steps_acc.append(step_data)
-                            update_workflow_step(sid, step_data.get("step_id"), step_data)
+                            update_workflow_step(sid, step_data.get("step_id"), step_data, user_id=user_id)
                             save_workflow(sid, {
                                 "plan": orchestrator.plan,
                                 "steps": workflow_steps_acc,
                                 "status": "executing",
-                            })
+                            }, user_id=user_id)
                         elif etype in ("summary",):
                             content = event.get("data", {}).get("content", "")
                             if content:
-                                append_message(sid, "assistant", content)
+                                append_message(sid, "assistant", content, user_id=user_id)
                         elif etype == "done" and workflow_steps_acc:
                             save_workflow(sid, {
                                 "plan": orchestrator.plan,
                                 "steps": workflow_steps_acc,
                                 "status": "done",
-                            })
+                            }, user_id=user_id)
                         elif etype in ("step_pause", "step_review"):
                             # 暂停或审查暂停，保存当前状态
                             save_workflow(sid, {
                                 "plan": orchestrator.plan,
                                 "steps": workflow_steps_acc,
                                 "status": "paused",
-                            })
+                            }, user_id=user_id)
                     await asyncio.sleep(0)
             except Exception as e:
                 logger.error(f"Resume stream error: {e}")
@@ -567,7 +650,7 @@ async def answer_clarification(body: AnswerRequest):
 
     # 新任务开始前归档
     if sid:
-        archive_current_workflow(sid)
+        archive_current_workflow(sid, user_id=user_id)
 
     async def event_generator():
         try:
@@ -578,12 +661,12 @@ async def answer_clarification(body: AnswerRequest):
                     if etype in ("reply", "summary"):
                         content = event.get("data", {}).get("content", "")
                         if content:
-                            append_message(sid, "assistant", content)
+                            append_message(sid, "assistant", content, user_id=user_id)
                     elif etype == "clarify":
                         questions = event.get("data", {}).get("questions", [])
                         if questions:
                             content = "我需要了解更多信息：\n\n" + "\n".join(f"{i+1}. {q}" for i, q in enumerate(questions))
-                            append_message(sid, "assistant", content)
+                            append_message(sid, "assistant", content, user_id=user_id)
                 await asyncio.sleep(0)
         except Exception as e:
             yield sse_event("error", {"message": str(e)})

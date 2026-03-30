@@ -1,12 +1,48 @@
 const BASE = '/api'
 
+// ═══ Auth token management ═══
+
+function getToken() {
+    return localStorage.getItem('auth_token')
+}
+
+function clearAuth() {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_user')
+    window.location.reload()
+}
+
+/**
+ * Authenticated fetch wrapper — auto-attaches JWT and handles 401.
+ */
+async function authFetch(url, options = {}) {
+    const token = getToken()
+    const headers = {
+        ...options.headers,
+    }
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`
+    }
+
+    const res = await fetch(url, { ...options, headers })
+
+    if (res.status === 401) {
+        clearAuth()
+        throw new Error('登录已过期，请重新登录')
+    }
+
+    return res
+}
+
+// ═══ Config & Status ═══
+
 export async function fetchConfig() {
-    const r = await fetch(`${BASE}/config`)
+    const r = await authFetch(`${BASE}/config`)
     return r.json()
 }
 
 export async function saveConfig(config) {
-    const r = await fetch(`${BASE}/config`, {
+    const r = await authFetch(`${BASE}/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config })
@@ -15,17 +51,19 @@ export async function saveConfig(config) {
 }
 
 export async function fetchStatus() {
-    const r = await fetch(`${BASE}/status`)
+    const r = await authFetch(`${BASE}/status`)
     return r.json()
 }
 
+// ═══ Sessions ═══
+
 export async function fetchSessions() {
-    const r = await fetch(`${BASE}/sessions`)
+    const r = await authFetch(`${BASE}/sessions`)
     return r.json()
 }
 
 export async function createSession(name, system_prompt = '') {
-    const r = await fetch(`${BASE}/sessions`, {
+    const r = await authFetch(`${BASE}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, system_prompt })
@@ -34,17 +72,17 @@ export async function createSession(name, system_prompt = '') {
 }
 
 export async function fetchSession(id) {
-    const r = await fetch(`${BASE}/sessions/${id}`)
+    const r = await authFetch(`${BASE}/sessions/${id}`)
     return r.json()
 }
 
 export async function fetchWorkflow(id) {
-    const r = await fetch(`${BASE}/sessions/${id}/workflow`)
+    const r = await authFetch(`${BASE}/sessions/${id}/workflow`)
     return r.json()
 }
 
 export async function updateSession(id, patch) {
-    const r = await fetch(`${BASE}/sessions/${id}`, {
+    const r = await authFetch(`${BASE}/sessions/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch)
@@ -53,23 +91,25 @@ export async function updateSession(id, patch) {
 }
 
 export async function deleteSession(id) {
-    const r = await fetch(`${BASE}/sessions/${id}`, { method: 'DELETE' })
+    const r = await authFetch(`${BASE}/sessions/${id}`, { method: 'DELETE' })
     return r.json()
 }
 
 export async function clearMessages(id) {
-    const r = await fetch(`${BASE}/sessions/${id}/messages`, { method: 'DELETE' })
+    const r = await authFetch(`${BASE}/sessions/${id}/messages`, { method: 'DELETE' })
     return r.json()
 }
 
 export async function retryLastMessages(id, count = 2) {
-    const r = await fetch(`${BASE}/sessions/${id}/messages/last?count=${count}`, { method: 'DELETE' })
+    const r = await authFetch(`${BASE}/sessions/${id}/messages/last?count=${count}`, { method: 'DELETE' })
     if (!r.ok) throw new Error('Retry failed')
     return r.json()
 }
 
+// ═══ Tokens ═══
+
 export async function countTokens(messages) {
-    const r = await fetch(`${BASE}/tokens/count`, {
+    const r = await authFetch(`${BASE}/tokens/count`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages })
@@ -78,26 +118,39 @@ export async function countTokens(messages) {
     return data.token_count || 0
 }
 
+// ═══ File Upload ═══
+
 export async function uploadFile(file) {
     const form = new FormData()
     form.append('file', file)
-    const r = await fetch(`${BASE}/files/upload`, { method: 'POST', body: form })
+    const token = getToken()
+    const headers = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const r = await fetch(`${BASE}/files/upload`, {
+        method: 'POST',
+        body: form,
+        headers,
+    })
+    if (r.status === 401) { clearAuth(); throw new Error('登录已过期') }
     if (!r.ok) throw new Error('Upload failed')
     return r.json()
 }
 
-/**
- * 直接对话 SSE 流（非 Agent 模式）
- */
+// ═══ Direct Chat SSE Stream ═══
+
 export function streamChat(payload, { onDelta, onStatus, onUsage, onFinish, onError }) {
     const controller = new AbortController()
+    const token = getToken()
+    const headers = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
 
     fetch(`${BASE}/chat/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal
     }).then(async res => {
+        if (res.status === 401) { clearAuth(); return }
         if (!res.ok) {
             const text = await res.text()
             onError(text)
@@ -164,18 +217,21 @@ export function streamChat(payload, { onDelta, onStatus, onUsage, onFinish, onEr
     return controller
 }
 
-/**
- * Agent 模式 SSE 流
- */
+// ═══ Agent Chat SSE Stream ═══
+
 export function streamAgentChat(payload, { onEvent, onFinish, onError }) {
     const controller = new AbortController()
+    const token = getToken()
+    const headers = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
 
     fetch(`${BASE}/chat/agent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal
     }).then(async res => {
+        if (res.status === 401) { clearAuth(); return }
         if (!res.ok) {
             const text = await res.text()
             onError(text)
@@ -209,34 +265,32 @@ export function streamAgentChat(payload, { onEvent, onFinish, onError }) {
 
     return controller
 }
-/**
- * 暂停执行
- */
+
+// ═══ Task Control ═══
+
 export async function pauseTask() {
-    const r = await fetch(`${BASE}/task/pause`, { method: 'POST' })
+    const r = await authFetch(`${BASE}/task/pause`, { method: 'POST' })
     return r.json()
 }
 
-/**
- * 恢复执行
- */
 export async function resumeTask() {
-    const r = await fetch(`${BASE}/task/resume`, { method: 'POST' })
+    const r = await authFetch(`${BASE}/task/resume`, { method: 'POST' })
     return r.json()
 }
 
-/**
- * 重试失败步骤 (SSE)
- */
 export function streamRetryStep(stepId, { onEvent, onFinish, onError }) {
     const controller = new AbortController()
+    const token = getToken()
+    const headers = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
 
     fetch(`${BASE}/task/retry`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ step_id: stepId }),
         signal: controller.signal
     }).then(async res => {
+        if (res.status === 401) { clearAuth(); return }
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -263,11 +317,8 @@ export function streamRetryStep(stepId, { onEvent, onFinish, onError }) {
     return controller
 }
 
-/**
- * Agent 确认计划
- */
 export async function confirmPlan(action, modification = '') {
-    const r = await fetch(`${BASE}/task/confirm`, {
+    const r = await authFetch(`${BASE}/task/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, modification })
@@ -275,18 +326,19 @@ export async function confirmPlan(action, modification = '') {
     return r
 }
 
-/**
- * Agent 确认计划 SSE 流
- */
 export function streamConfirmPlan(action, modification, { onEvent, onFinish, onError, sessionId = '', stepModels = {} }) {
     const controller = new AbortController()
+    const token = getToken()
+    const headers = { 'Content-Type': 'application/json' }
+    if (token) headers['Authorization'] = `Bearer ${token}`
 
     fetch(`${BASE}/task/confirm`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ action, modification, session_id: sessionId, step_models: stepModels }),
         signal: controller.signal
     }).then(async res => {
+        if (res.status === 401) { clearAuth(); return }
         if (!res.ok) {
             const data = await res.json().catch(() => ({}))
             onError(data.detail || 'Confirm failed')
@@ -328,16 +380,15 @@ export function streamConfirmPlan(action, modification, { onEvent, onFinish, onE
     return controller
 }
 
-/**
- * Agent 配置（role_models）
- */
+// ═══ Agent Config ═══
+
 export async function fetchAgentConfig() {
-    const r = await fetch(`${BASE}/agent/config`)
+    const r = await authFetch(`${BASE}/agent/config`)
     return r.json()
 }
 
 export async function updateAgentConfig(role_models) {
-    const r = await fetch(`${BASE}/agent/config`, {
+    const r = await authFetch(`${BASE}/agent/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role_models })

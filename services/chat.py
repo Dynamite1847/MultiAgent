@@ -18,7 +18,7 @@ from services.tokens import (
 logger = logging.getLogger(__name__)
 
 
-async def generate_title(session_id: str, user_text: str, assistant_text: str):
+async def generate_title(session_id: str, user_text: str, assistant_text: str, user_id: str = "default"):
     """Use DeepSeek (openai provider) to summarize Q+A into a short title, then update session."""
     try:
         cfg = load_config()
@@ -57,8 +57,8 @@ async def generate_title(session_id: str, user_text: str, assistant_text: str):
 
         title = "".join(full_title).strip().strip('"').strip("'").strip("《》")
         if title:
-            update_session(session_id, name=title)
-            logger.info(f"Auto-titled session {session_id}: {title}")
+            update_session(session_id, user_id=user_id, name=title)
+            logger.info(f"Auto-title update successful: {title}")
     except Exception as e:
         logger.warning(f"Auto-title failed for session {session_id}: {e}")
 
@@ -178,7 +178,8 @@ async def stream_chat_response(
     frequency_penalty: float = 0.0,
     context_strategy: str = "rounds",
     context_rounds: int = 10,
-    context_token_threshold: int = 8000
+    context_token_threshold: int = 8000,
+    user_id: str = "default"
 ) -> AsyncIterator[str]:
     """
     Yields SSE-formatted strings. Saves the full response to session on completion.
@@ -196,7 +197,7 @@ async def stream_chat_response(
         yield f"data: {json.dumps({'error': f'Provider {provider_name} has no API key configured.'})}\n\n"
         return
 
-    session = get_session(session_id)
+    session = get_session(session_id, user_id=user_id)
     if not session:
         yield f"data: {json.dumps({'error': 'Session not found.'})}\n\n"
         return
@@ -213,10 +214,10 @@ async def stream_chat_response(
     user_content = build_content(user_message, files)
 
     # Persist user message FIRST, so it is never lost even if API call fails
-    append_message(session_id, "user", user_content)
+    append_message(session_id, "user", user_content, user_id=user_id)
 
     # Re-fetch session so assemble_context has the newly appended message
-    session = get_session(session_id)
+    session = get_session(session_id, user_id=user_id)
 
     # Assemble context
     messages = assemble_context(
@@ -275,7 +276,7 @@ async def stream_chat_response(
             try:
                 append_message(
                     session_id, "assistant", full_text,
-                    usage=usage, model=model, provider=provider_name
+                    usage=usage, model=model, provider=provider_name, user_id=user_id
                 )
             except Exception as e:
                 logger.error(f"Failed to persist partial message on cancel: {e}", exc_info=True)
@@ -291,7 +292,7 @@ async def stream_chat_response(
             try:
                 append_message(
                     session_id, "assistant", full_text,
-                    usage=usage, model=model, provider=provider_name
+                    usage=usage, model=model, provider=provider_name, user_id=user_id
                 )
             except Exception as persist_e:
                 logger.error(f"Failed to persist partial message on error: {persist_e}", exc_info=True)
@@ -303,7 +304,7 @@ async def stream_chat_response(
             try:
                 append_message(
                     session_id, "assistant", full_text,
-                    usage=usage, model=model, provider=provider_name
+                    usage=usage, model=model, provider=provider_name, user_id=user_id
                 )
             except Exception as e:
                 logger.error(f"Failed to persist complete message: {e}", exc_info=True)
@@ -315,6 +316,6 @@ async def stream_chat_response(
     # Auto-title: on first message, use DeepSeek to generate a concise title
     if is_first_message and full_text:
         user_text = user_message if isinstance(user_message, str) else str(user_message)
-        asyncio.create_task(generate_title(session_id, user_text, full_text))
+        asyncio.create_task(generate_title(session_id, user_text, full_text, user_id=user_id))
 
     yield "data: [DONE]\n\n"

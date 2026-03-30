@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'react'
 import useStore from '../stores/useStore'
 import MessageItem from './MessageItem'
 
-export default function ChatPanel() {
+export default function ChatPanel({ onMenuClick, onPanelToggle }) {
     const activeSession = useStore(s => s.activeSession)
     const activeSessionId = useStore(s => s.activeSessionId)
     const streamingTextMap = useStore(s => s.streamingTextMap)
@@ -75,6 +75,7 @@ export default function ChatPanel() {
             {/* Chat Header */}
             <div className="chat-header">
                 <div className="chat-header-left">
+                    <button className="hamburger-btn" onClick={onMenuClick} title="菜单">☰</button>
                     <span className="chat-session-name">{activeSession?.name || '对话'}</span>
                     {!agentMode && (
                         <span className="provider-badge">
@@ -94,6 +95,7 @@ export default function ChatPanel() {
                             ↑{lastUsage.prompt_tokens} ↓{lastUsage.completion_tokens}
                         </span>
                     )}
+                    <button className="panel-toggle-btn" onClick={onPanelToggle} title="切换面板">⚙</button>
                 </div>
             </div>
 
