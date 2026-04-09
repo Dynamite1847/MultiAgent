@@ -15,6 +15,13 @@ export default function ChatPanel({ onMenuClick, onPanelToggle }) {
     const lastUsage = useStore(s => s.lastUsage)
     const retryMessage = useStore(s => s.retryMessage)
     const editMessage = useStore(s => s.editMessage)
+    const observerMemoryStore = useStore(s => s.observerMemoryInfo)
+
+    const omData = observerMemoryStore || (activeSession?.observer_summary ? {
+        version: activeSession.observer_summary.version || 1,
+        compressed_count: activeSession.observer_summary.compressed_up_to,
+        active_count: Math.max(0, (activeSession.messages?.length || 0) - activeSession.observer_summary.compressed_up_to)
+    } : null)
 
     const bottomRef = useRef(null)
 
@@ -54,12 +61,12 @@ export default function ChatPanel({ onMenuClick, onPanelToggle }) {
         return (
             <div className="chat-panel">
                 <div className="chat-empty">
-                    <div className="chat-empty-icon">🤖</div>
-                    <h2>Multi-Agent Workbench</h2>
-                    <p>选择一个对话或创建新对话开始</p>
+                    <div className="chat-empty-icon">◉</div>
+                    <h2>The Machine</h2>
+                    <p>Select a session or create a new one</p>
                     <div className="chat-empty-hints">
                         <span onClick={() => useStore.getState().createNewSession()}>
-                            ➕ 创建新对话
+                            + New Session
                         </span>
                     </div>
                 </div>
@@ -75,7 +82,7 @@ export default function ChatPanel({ onMenuClick, onPanelToggle }) {
             {/* Chat Header */}
             <div className="chat-header">
                 <div className="chat-header-left">
-                    <button className="hamburger-btn" onClick={onMenuClick} title="菜单">☰</button>
+                    <button className="hamburger-btn" onClick={onMenuClick} title="Menu">☰</button>
                     <span className="chat-session-name">{activeSession?.name || '对话'}</span>
                     {!agentMode && (
                         <span className="provider-badge">
@@ -85,7 +92,7 @@ export default function ChatPanel({ onMenuClick, onPanelToggle }) {
                     {isStreaming && (
                         <div className="status-indicator">
                             <div className={`status-dot ${isThinking ? 'thinking' : 'streaming'}`} />
-                            <span>{isThinking ? '深度思考中…' : '生成中…'}</span>
+                            <span>{isThinking ? 'Processing…' : 'Streaming…'}</span>
                         </div>
                     )}
                 </div>
@@ -99,23 +106,33 @@ export default function ChatPanel({ onMenuClick, onPanelToggle }) {
                 </div>
             </div>
 
+            {/* Observer Memory 压缩通知 */}
+            {omData && (
+                <div className="observer-memory-toast">
+                    <span className="om-icon">◈</span>
+                    <span className="om-text">
+                        Memory v{omData.version} · Archived {omData.compressed_count} · Active {omData.active_count}
+                    </span>
+                </div>
+            )}
+
             {/* Messages */}
             <div className="chat-messages">
                 {nonSystemMessages.length === 0 && !isStreaming && (
                     <div className="chat-empty" style={{ height: '50vh' }}>
-                        <div className="chat-empty-icon">{agentMode ? '🧠' : '💬'}</div>
-                        <h2>{agentMode ? 'Agent 模式' : '直接对话'}</h2>
-                        <p>{agentMode ? '描述任务，AI 自动编排协作完成' : '选择模型，开始对话'}</p>
+                        <div className="chat-empty-icon">{agentMode ? '◉' : '◈'}</div>
+                        <h2>{agentMode ? 'Autonomous Mode' : 'Direct Mode'}</h2>
+                        <p>{agentMode ? 'Describe your task. The Machine will orchestrate.' : 'Select a model and start a conversation.'}</p>
                         <div className="chat-empty-hints">
                             {agentMode ? (
                                 <>
-                                    <span onClick={() => useStore.getState().setEditingText('帮我调研一下 Cursor IDE 的竞品')}>🔍 竞品调研</span>
-                                    <span onClick={() => useStore.getState().setEditingText('写一份AI编程工具的竞品分析报告')}>📝 撰写报告</span>
+                                    <span onClick={() => useStore.getState().setEditingText('帮我调研一下 Cursor IDE 的竞品')}>Research</span>
+                                    <span onClick={() => useStore.getState().setEditingText('写一份AI编程工具的竞品分析报告')}>Write Report</span>
                                 </>
                             ) : (
                                 <>
-                                    <span onClick={() => useStore.getState().setEditingText('你好，请介绍一下你自己')}>💬 打个招呼</span>
-                                    <span onClick={() => useStore.getState().setEditingText('帮我解释一下量子计算的基本原理')}>🔬 知识问答</span>
+                                    <span onClick={() => useStore.getState().setEditingText('你好，请介绍一下你自己')}>Say Hello</span>
+                                    <span onClick={() => useStore.getState().setEditingText('帮我解释一下量子计算的基本原理')}>Ask a Question</span>
                                 </>
                             )}
                         </div>
@@ -154,11 +171,11 @@ export default function ChatPanel({ onMenuClick, onPanelToggle }) {
                 {/* Thinking indicator */}
                 {(isThinking || (agentMode && agentThinking)) && (
                     <div className="chat-message assistant">
-                        <div className="chat-message-avatar">🤖</div>
+                        <div className="chat-message-avatar">◈</div>
                         <div className="chat-message-body">
                             <div className="chat-message-content thinking">
                                 <span className="thinking-dot" />
-                                {agentMode ? agentThinking : '思考中…'}
+                                {agentMode ? agentThinking : 'PROCESSING...'}
                             </div>
                         </div>
                     </div>

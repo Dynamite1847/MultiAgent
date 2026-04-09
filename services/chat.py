@@ -14,6 +14,7 @@ from services.tokens import (
     truncate_text_by_tokens,
     estimate_tokens
 )
+from memory.observer import ObserverMemory
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ async def generate_title(session_id: str, user_text: str, assistant_text: str, u
         provider = get_provider("openai", ds_cfg)
 
         title_prompt = (
-            "根据以下一段对话，用不超过15个字生成一个简短的中文标题。"
+            "根据用户和大模型的对话，用不超过15个字生成一个简短的中文标题，标题要体现出用户在和ai讨论什么。"
             "只输出标题文字本身，不要加引号、不要解释。\n\n"
             f"用户: {user_text[:300]}\n"
             f"助手: {assistant_text[:300]}"
@@ -90,23 +91,24 @@ def build_content(text: str, files: Optional[List[dict]] = None):
 def assemble_context(
     session: dict,
     new_user_content,
-    strategy: str = "rounds",
     context_rounds: int = 10,
-    context_token_threshold: int = 8000,
+    context_limit: int = 60000,
     max_single_message_tokens: int = 30000,
-    max_total_tokens: int = 60000
 ) -> List[dict]:
-    """Build the messages list for the API call."""
+    """Build the messages list for the API call using Observer Memory.
+
+    Session messages are NEVER modified. If context is too large,
+    ObserverMemory builds [summary] + [recent N rounds].
+    """
     history = session.get("messages", [])
     raw_messages = [{"role": m["role"], "content": m["content"]}
                     for m in history if m["role"] in ("user", "assistant")]
-    
+
     if new_user_content:
-        # If passed manually and not yet inside history (legacy usage)
         if not raw_messages or raw_messages[-1]["content"] != new_user_content:
             raw_messages.append({"role": "user", "content": new_user_content})
 
-    # Merge consecutive messages of the same role (prevents API 400 errors from providers like Anthropic)
+    # Merge consecutive messages of the same role
     messages = []
     for m in raw_messages:
         if not messages:
@@ -125,44 +127,37 @@ def assemble_context(
         else:
             messages.append(m)
 
-    if strategy == "rounds":
-        messages = trim_messages_by_rounds(messages, context_rounds)
-    elif strategy == "tokens":
-        messages = trim_messages_by_tokens(messages, context_token_threshold)
+    # 使用 Observer Memory 构建上下文
+    observer_summary = session.get("observer_summary")
 
-    # Truncate individual oversized messages to prevent payload from being too large
-    for msg in messages:
+    context = ObserverMemory.build_context(
+        messages=messages,
+        observer_summary=observer_summary,
+        context_rounds=context_rounds,
+    )
+
+    # Truncate individual oversized messages
+    for msg in context:
         content = msg.get("content", "")
         if isinstance(content, str):
             tokens = estimate_tokens(content)
             if tokens > max_single_message_tokens:
                 logger.warning(
-                    f"Truncating {msg['role']} message from ~{tokens} tokens to ~{max_single_message_tokens} tokens"
+                    f"Truncating {msg['role']} message from ~{tokens} to ~{max_single_message_tokens} tokens"
                 )
                 msg["content"] = truncate_text_by_tokens(content, max_single_message_tokens)
         elif isinstance(content, list):
-            # Truncate text parts in multimodal messages
             for part in content:
                 if part.get("type") == "text":
                     text = part.get("text", "")
                     tokens = estimate_tokens(text)
                     if tokens > max_single_message_tokens:
-                        logger.warning(
-                            f"Truncating text part in {msg['role']} message from ~{tokens} to ~{max_single_message_tokens} tokens"
-                        )
                         part["text"] = truncate_text_by_tokens(text, max_single_message_tokens)
 
-    # Enforce total context size: drop oldest messages if total exceeds limit
-    # Always keep the last message (current user message)
-    total = count_messages_tokens(messages)
-    while total > max_total_tokens and len(messages) > 1:
-        dropped = messages.pop(0)
-        dropped_tokens = estimate_tokens(dropped.get("content", "")) if isinstance(dropped.get("content"), str) else 0
-        logger.info(f"Dropping oldest {dropped['role']} message (~{dropped_tokens} tokens) to fit total limit")
-        total = count_messages_tokens(messages)
-
-    logger.info(f"Context assembled: {len(messages)} messages, ~{total} tokens total")
-    return messages
+    total = count_messages_tokens(context)
+    logger.info(f"Context assembled: {len(context)} messages, ~{total} tokens "
+               f"(OM: {'有摘要' if observer_summary else '无摘要'})")
+    return context
 
 
 async def stream_chat_response(
@@ -176,9 +171,7 @@ async def stream_chat_response(
     temperature: float = 1.0,
     top_p: float = 1.0,
     frequency_penalty: float = 0.0,
-    context_strategy: str = "rounds",
     context_rounds: int = 10,
-    context_token_threshold: int = 8000,
     user_id: str = "default"
 ) -> AsyncIterator[str]:
     """
@@ -219,21 +212,57 @@ async def stream_chat_response(
     # Re-fetch session so assemble_context has the newly appended message
     session = get_session(session_id, user_id=user_id)
 
-    # Assemble context
+    # ── Observer Memory: 检查并压缩 ──
+    context_limit = cfg.get("context_limit", 60000)
+    om_threshold = cfg.get("om_threshold", 0.7)
+    all_messages = session.get("messages", [])
+    observer_summary = session.get("observer_summary")
+
+    om_event = None  # 用于前端展示的 OM 压缩事件
+
+    if ObserverMemory.should_compact(all_messages, observer_summary,
+                                      context_limit, om_threshold, context_rounds):
+        try:
+            from core.llm_client import LLMClient
+            from core.config import Config
+            llm = LLMClient(Config())
+            new_summary = ObserverMemory.compact(
+                messages=all_messages,
+                llm_client=llm,
+                role="observer",
+                existing_summary=observer_summary,
+                context_rounds=context_rounds,
+            )
+            if new_summary and new_summary.get("content"):
+                from services.sessions import save_observer_summary
+                save_observer_summary(session_id, new_summary, user_id=user_id)
+                session = get_session(session_id, user_id=user_id)
+                # 构造前端展示事件
+                om_event = {
+                    "version": new_summary.get("version", 1),
+                    "compressed_count": new_summary.get("compressed_up_to", 0),
+                    "active_count": len(all_messages) - new_summary.get("compressed_up_to", 0),
+                    "summary_preview": new_summary["content"][:150] + ("..." if len(new_summary["content"]) > 150 else ""),
+                }
+        except Exception as e:
+            logger.warning(f"OM compact 失败，继续使用原始上下文: {e}")
+
+    # Assemble context (with OM summary if available)
     messages = assemble_context(
         session=session,
-        # don't pass new_user_content, assemble_context will read it from history
         new_user_content=user_content,
-        strategy=context_strategy or cfg.get("context_strategy", "rounds"),
         context_rounds=context_rounds or cfg.get("context_rounds", 10),
-        context_token_threshold=context_token_threshold or cfg.get("context_token_threshold", 8000),
+        context_limit=context_limit,
         max_single_message_tokens=cfg.get("max_single_message_tokens", 30000),
-        max_total_tokens=cfg.get("max_total_tokens", 60000),
     )
 
     provider = get_provider(provider_name, provider_cfg)
     full_response = []
     usage = None
+
+    # 先发送 OM 压缩事件（如果有）
+    if om_event:
+        yield f"data: {json.dumps({'observer_memory': om_event})}\n\n"
 
     try:
         async for chunk in provider.stream_chat(

@@ -21,6 +21,7 @@ from core.llm_client import LLMClient
 from agent.state import AgentState
 from agent.tool_pipeline import ToolPipeline
 from tools.registry import ToolRegistry
+from memory.observer import ObserverMemory
 
 
 MAX_TURNS = 25
@@ -48,6 +49,8 @@ class AgentLoop:
         self.state: AgentState | None = None
         self._cancelled = False
         self._interrupted_messages: list[dict] = []  # 用户中途注入的消息
+        self._observer_summary: dict | None = None   # OM 摘要（独立于 state.messages）
+        self._context_rounds: int = 10               # 活跃窗口大小
 
     async def run(
         self,
@@ -95,10 +98,12 @@ class AgentLoop:
                 yield {"type": "interrupted", "data": {"turn": turn, "reason": "cancelled"}}
                 return
 
-            # ① 检查是否需要 compact
-            est_tokens = self.state.estimate_tokens()
-            if self.state.is_over_limit(self.context_limit, COMPACT_THRESHOLD):
-                logger.warning(f"R{turn+1} 上下文接近上限 ({est_tokens}/{self.context_limit})，触发 compact")
+            # ① 检查是否需要 compact（使用 Observer Memory）
+            if ObserverMemory.should_compact(
+                self.state.messages, self._observer_summary,
+                self.context_limit, COMPACT_THRESHOLD, self._context_rounds
+            ):
+                logger.warning(f"R{turn+1} 触发 OM compact")
                 yield {"type": "compact", "data": {"message": "上下文接近容量上限，正在压缩..."}}
                 await self._compact_messages(role)
                 yield {"type": "compact_done", "data": {
@@ -127,8 +132,9 @@ class AgentLoop:
                 "tokens": self.state.estimate_tokens(),
             }}
 
-            # 构建 messages（system prompt + 对话历史）
-            full_messages = [{"role": "system", "content": system_prompt}] + self.state.messages
+            # 构建 messages（system prompt + OM 窗口化上下文）
+            context_messages = self._get_llm_messages()
+            full_messages = [{"role": "system", "content": system_prompt}] + context_messages
 
             try:
                 llm_start = time.time()
@@ -296,47 +302,39 @@ class AgentLoop:
 
         return "\n\n".join(parts)
 
-    async def _compact_messages(self, role: str = "orchestrator"):
+    async def _compact_messages(self, role: str = "observer"):
         """
-        Auto-compact：压缩消息。
-        发起独立 API 调用生成摘要，替换 messages 数组。
+        Auto-compact：使用 ObserverMemory 压缩消息。
+        state.messages 保持完整，摘要存入 _observer_summary。
         """
         logger.info(f"Auto-compact 触发 (估计 {self.state.estimate_tokens()} tokens)")
 
-        # 构建摘要请求
-        msg_text = []
-        for m in self.state.messages:
-            r = m.get("role", "?")
-            c = m.get("content", "")
-            if r == "tool":
-                c = c[:500]  # tool result 截断
-            msg_text.append(f"[{r}] {c}")
-
-        summary_prompt = (
-            "请将以下对话历史压缩为要点摘要。保留：\n"
-            "1. 用户的核心需求和偏好\n"
-            "2. 重要的决策和结论\n"
-            "3. 工具调用的关键结果（不要保留完整的搜索结果，只保留发现要点）\n"
-            "4. 当前正在进行的任务状态\n\n"
-            "--- 对话历史 ---\n\n"
-            + "\n\n".join(msg_text[-50:])  # 最近 50 条
-        )
-
         try:
-            summary = self.llm.call(
-                [{"role": "user", "content": summary_prompt}],
-                role=role,
-                temperature=0.3,
+            new_summary = ObserverMemory.compact(
+                messages=self.state.messages,
+                llm_client=self.llm,
+                role="observer",
+                existing_summary=self._observer_summary,
+                context_rounds=self._context_rounds,
             )
 
-            # 替换 messages
-            self.state.messages = [
-                {"role": "user", "content": f"[对话历史摘要]\n\n{summary}"},
-                {"role": "assistant", "content": "Understood. 我已理解之前的对话上下文，继续执行。"},
-            ]
-
-            logger.info(f"Auto-compact 完成，压缩后 {self.state.estimate_tokens()} tokens")
+            if new_summary and new_summary.get("content"):
+                self._observer_summary = new_summary
+                logger.info(f"Auto-compact 完成，摘要版本 v{new_summary.get('version', 1)}")
+            else:
+                logger.warning("Auto-compact 返回空摘要")
 
         except Exception as e:
             logger.error(f"Auto-compact 失败: {e}")
             # 失败时不中断循环，只是不压缩
+
+    def _get_llm_messages(self) -> list[dict]:
+        """使用 ObserverMemory 构建 LLM 上下文消息。
+        
+        state.messages 保持完整，通过 OM.build_context 构建窗口化的上下文。
+        """
+        return ObserverMemory.build_context(
+            messages=self.state.messages,
+            observer_summary=self._observer_summary,
+            context_rounds=self._context_rounds,
+        )

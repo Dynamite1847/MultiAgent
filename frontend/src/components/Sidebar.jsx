@@ -60,19 +60,19 @@ export default function Sidebar({ isOpen, onClose, currentUser, onLogout }) {
         <div className={`sidebar ${isOpen ? 'open' : ''}`}>
             <div className="sidebar-header">
                 <div className="sidebar-logo">
-                    <div className="sidebar-logo-icon">🤖</div>
-                    <span className="sidebar-logo-text">Multi-Agent</span>
+                    <div className="sidebar-logo-icon">◉</div>
+                    <span className="sidebar-logo-text">The Machine</span>
                     <button className="sidebar-close-btn" onClick={onClose}>✕</button>
                 </div>
                 <button className="new-session-btn" onClick={handleNewSession}>
-                    <span>+</span> 新对话
+                    <span>+</span> New Session
                 </button>
             </div>
 
             {/* Agent 模式开关 */}
             <div className="agent-mode-toggle">
                 <span className="agent-mode-label">
-                    {agentMode ? '🧠 Agent 模式' : '💬 直接对话'}
+                    {agentMode ? 'Autonomous' : 'Direct'}
                 </span>
                 <label className="toggle-switch">
                     <input type="checkbox" checked={agentMode} onChange={toggleAgentMode} />
@@ -82,8 +82,8 @@ export default function Sidebar({ isOpen, onClose, currentUser, onLogout }) {
 
             <div className="sidebar-sessions">
                 {sessions.length === 0 && (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12, padding: '20px 0' }}>
-                        暂无对话，点击上方"新对话"开始
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 11, padding: '20px 0', fontFamily: 'var(--font-mono)', letterSpacing: '1px' }}>
+                        No active sessions
                     </div>
                 )}
                 {sessions.map(s => (
@@ -92,7 +92,7 @@ export default function Sidebar({ isOpen, onClose, currentUser, onLogout }) {
                         className={`session-item ${activeSessionId === s.id ? 'active' : ''}`}
                         onClick={() => handleSelectSession(s.id)}
                     >
-                        <span className="session-item-icon">💬</span>
+                        <span className="session-item-icon">▸</span>
                         <div className="session-item-info">
                             {renamingId === s.id ? (
                                 <input
@@ -127,13 +127,13 @@ export default function Sidebar({ isOpen, onClose, currentUser, onLogout }) {
             <div className="sidebar-footer">
                 {currentUser && (
                     <div className="sidebar-user">
-                        <span className="sidebar-user-avatar">👤</span>
+                        <span className="sidebar-user-avatar">◉</span>
                         <span className="sidebar-user-name">{currentUser.display_name}</span>
                         <button className="sidebar-logout-btn" onClick={onLogout} title="退出登录">↗</button>
                     </div>
                 )}
                 <button className="settings-btn" onClick={() => setShowSettings(true)}>
-                    ⚙️ 设置 / API Key
+                    Settings
                 </button>
             </div>
         </div>

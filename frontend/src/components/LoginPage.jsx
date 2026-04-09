@@ -34,32 +34,32 @@ export default function LoginPage({ onLogin }) {
         <div className="login-page">
             <div className="login-card">
                 <div className="login-header">
-                    <div className="login-logo">🤖</div>
-                    <h1>Multi-Agent Workbench</h1>
-                    <p>智能多 Agent 协作平台</p>
+                    <div className="login-logo">◉</div>
+                    <h1>The Machine</h1>
+                    <p>Multi-Agent System</p>
                 </div>
                 <form className="login-form" onSubmit={handleSubmit}>
                     {error && <div className="login-error">{error}</div>}
                     <div className="login-field">
-                        <label htmlFor="login-username">用户名</label>
+                        <label htmlFor="login-username">Operator ID</label>
                         <input
                             id="login-username"
                             type="text"
                             value={username}
                             onChange={e => setUsername(e.target.value)}
-                            placeholder="请输入用户名"
+                            placeholder="Enter operator ID"
                             autoFocus
                             autoComplete="username"
                         />
                     </div>
                     <div className="login-field">
-                        <label htmlFor="login-password">密码</label>
+                        <label htmlFor="login-password">Access Code</label>
                         <input
                             id="login-password"
                             type="password"
                             value={password}
                             onChange={e => setPassword(e.target.value)}
-                            placeholder="请输入密码"
+                            placeholder="Enter access code"
                             autoComplete="current-password"
                         />
                     </div>
@@ -68,11 +68,11 @@ export default function LoginPage({ onLogin }) {
                         className="login-submit"
                         disabled={loading || !username.trim() || !password.trim()}
                     >
-                        {loading ? '登录中…' : '登 录'}
+                        {loading ? 'Authenticating...' : 'Initialize'}
                     </button>
                 </form>
                 <div className="login-footer">
-                    <span>🔒 数据已加密传输</span>
+                    <span>Secure connection</span>
                 </div>
             </div>
         </div>

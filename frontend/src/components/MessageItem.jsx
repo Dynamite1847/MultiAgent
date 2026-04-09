@@ -3,9 +3,9 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 const ROLE_STYLES = {
-    user: { avatar: '👤', className: 'user' },
-    assistant: { avatar: '🤖', className: 'assistant' },
-    system: { avatar: 'ℹ️', className: 'system' },
+    user: { avatar: '◉', className: 'user' },
+    assistant: { avatar: '◈', className: 'assistant' },
+    system: { avatar: '▣', className: 'system' },
 }
 
 export default function MessageItem({ message, isLast, canRetry, canEdit, onRetry, onEdit, isStreaming }) {
@@ -50,17 +50,17 @@ export default function MessageItem({ message, isLast, canRetry, canEdit, onRetr
                     <div className="chat-message-actions">
                         {message.role === 'assistant' && (
                             <button className="msg-action-btn" onClick={handleCopy} title="复制内容">
-                                {copied ? '✅ 已复制' : '📋 复制'}
+                                {copied ? '✓ COPIED' : 'COPY'}
                             </button>
                         )}
                         {canRetry && (
                             <button className="msg-action-btn" onClick={onRetry} title="重新生成">
-                                🔄 重试
+                                ▸ RETRY
                             </button>
                         )}
                         {canEdit && (
                             <button className="msg-action-btn" onClick={onEdit} title="编辑此消息">
-                                ✏️ 编辑
+                                ▸ EDIT
                             </button>
                         )}
                     </div>

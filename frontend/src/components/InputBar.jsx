@@ -16,6 +16,7 @@ export default function InputBar() {
         handleAgentEvent,
         plan, workflowSteps,
         waitingAnswer,
+        setObserverMemoryInfo,
     } = useStore()
 
     const [text, setText] = useState('')
@@ -249,6 +250,7 @@ export default function InputBar() {
                     if (status === 'thinking') setIsThinking(currentSessionId, true)
                 },
                 onUsage: (usage) => setLastUsage(usage),
+                onObserverMemory: (info) => setObserverMemoryInfo(info),
                 onFinish: async () => {
                     setIsStreaming(currentSessionId, false)
                     setIsThinking(currentSessionId, false)
@@ -301,7 +303,7 @@ export default function InputBar() {
             {/* 等待回答提示 */}
             {waitingAnswer && (
                 <div className="answer-hint">
-                    💬 请在下方输入你的回答
+                    ▸ INPUT YOUR RESPONSE BELOW
                 </div>
             )}
             {/* Token estimate (直接对话模式) */}
@@ -341,16 +343,16 @@ export default function InputBar() {
                     onClick={() => fileInputRef.current?.click()}
                     title="上传文件（图片/PDF/Word/Excel/md/TXT）"
                     disabled={uploading > 0}
-                >📎</button>
+                >⊕</button>
 
                 <textarea
                     ref={textareaRef}
                     className="message-input"
                     placeholder={waitingAnswer
-                        ? '请回答上方的问题…'
+                        ? 'Enter your response...'
                         : agentMode
-                            ? '描述你的任务，AI 将自动编排多个 Agent 协作完成...'
-                            : '输入消息… (Enter 发送，Shift+Enter 换行)'}
+                            ? 'Describe task for autonomous orchestration...'
+                            : 'Enter transmission... (Enter to send, Shift+Enter newline)'}
                     value={text}
                     onChange={handleTextChange}
                     onKeyDown={handleKeyDown}
@@ -362,12 +364,12 @@ export default function InputBar() {
                 />
 
                 {isStreaming
-                    ? <button className="send-btn" onClick={handleStop} title="停止">⏹</button>
-                    : <button className="send-btn" onClick={() => handleSend()} disabled={!text.trim() && pendingFiles.length === 0} title="发送">↑</button>
+                    ? <button className="send-btn" onClick={handleStop} title="Stop">■</button>
+                    : <button className="send-btn" onClick={() => handleSend()} disabled={!text.trim() && pendingFiles.length === 0} title="Send">▸</button>
                 }
             </div>
 
-            <div className="input-hint">Enter 发送 · Shift+Enter 换行 · 支持拖拽和剪贴板图片</div>
+            <div className="input-hint">Enter to send · Shift+Enter for new line · Drag to attach</div>
 
             <input
                 ref={fileInputRef}

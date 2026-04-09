@@ -4,6 +4,11 @@ providers:
     json_format_mode: chat_completions
     models:
     - claude-opus-4-6-thinking
+  anthropic1:
+    base_url: https://doro.lol/v1
+    json_format_mode: chat_completions
+    models:
+    - claude-opus-4-6
   google:
     base_url: https://api.linkapi.ai/v1
     json_format_mode: chat_completions
@@ -34,19 +39,19 @@ providers:
     - mimo-v2-pro
 role_models:
   orchestrator: dashscope/glm-5
-default_provider: anthropic
-default_model: claude-opus-4-6-thinking
+  observer: dashscope/glm-5
+default_provider: doubao
+default_model: doubao-seed-2-0-pro-260215
 global_system_prompt: ''
 default_params:
   max_tokens: 100000
   temperature: 1
   top_p: 1
   frequency_penalty: 0
-context_strategy: rounds
 context_rounds: 10
-context_token_threshold: 8000
+context_limit: 60000
+om_threshold: 0.7
 max_single_message_tokens: 30000
-max_total_tokens: 60000
 agent:
   max_turns: 25
   context_limit: 128000

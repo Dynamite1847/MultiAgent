@@ -46,49 +46,53 @@ export default function ParamDrawer() {
 
     return (
         <div className="param-drawer">
-            <div className="drawer-header">参数调试</div>
+            <div className="drawer-header">Parameters</div>
 
-            <div className="drawer-section">
-                <div className="drawer-label">提供商</div>
-                <select
-                    className="form-select"
-                    value={params.provider || ''}
-                    onChange={e => {
-                        const p = e.target.value
-                        const firstModel = providers[p]?.models?.[0] || ''
-                        setParams({ provider: p, model: firstModel })
-                    }}
-                >
-                    {providerKeys.map(p => (
-                        <option key={p} value={p}>{
-                            p === 'anthropic' ? '⬡ Anthropic (Claude)' :
-                                p === 'google' ? '◈ Google (Gemini)' :
-                                    p === 'doubao' ? '☁️ Doubao (火山引擎)' :
-                                        p === 'dashscope' ? '🔮 DashScope (百炼)' :
-                                            p === 'openai' ? '○ DeepSeek / OpenAI' : p
-                        }</option>
-                    ))}
-                </select>
-
-                <div style={{ height: 8 }} />
-
-                <div className="drawer-label">模型</div>
-                <select
-                    className="form-select"
-                    value={params.model || ''}
-                    onChange={e => setParams({ model: e.target.value })}
-                >
-                    {currentModels.map(m => (
-                        <option key={m} value={m}>{m}</option>
-                    ))}
-                </select>
+            {/* ── Model Card ── */}
+            <div className="drawer-card">
+                <div className="drawer-card-stack">
+                    <span className="drawer-card-label">Provider</span>
+                    <select
+                        className="drawer-full-select"
+                        value={params.provider || ''}
+                        onChange={e => {
+                            const p = e.target.value
+                            const firstModel = providers[p]?.models?.[0] || ''
+                            setParams({ provider: p, model: firstModel })
+                        }}
+                    >
+                        {providerKeys.map(p => (
+                            <option key={p} value={p}>{
+                                p === 'anthropic' ? 'Anthropic (Claude)' :
+                                    p === 'google' ? 'Google (Gemini)' :
+                                        p === 'doubao' ? 'Doubao (火山引擎)' :
+                                            p === 'dashscope' ? 'DashScope (百炼)' :
+                                                p === 'openai' ? 'DeepSeek / OpenAI' : p
+                            }</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="drawer-card-divider" />
+                <div className="drawer-card-stack">
+                    <span className="drawer-card-label">Model</span>
+                    <select
+                        className="drawer-full-select"
+                        value={params.model || ''}
+                        onChange={e => setParams({ model: e.target.value })}
+                    >
+                        {currentModels.map(m => (
+                            <option key={m} value={m}>{m}</option>
+                        ))}
+                    </select>
+                </div>
             </div>
 
-            <div className="drawer-section">
-                <div className="drawer-label">System Prompt <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>（当前对话生效）</span></div>
+            {/* ── System Prompt ── */}
+            <div className="drawer-section-title">System Prompt</div>
+            <div className="drawer-card">
                 <textarea
-                    className="form-textarea"
-                    placeholder={config?.global_system_prompt || '留空则使用全局/会话默认值…'}
+                    className="drawer-textarea"
+                    placeholder={config?.global_system_prompt || 'Uses global default if empty…'}
                     value={activeSession ? (activeSession.system_prompt || '') : (params.system_prompt || '')}
                     onChange={e => {
                         const val = e.target.value
@@ -98,62 +102,75 @@ export default function ParamDrawer() {
                     onBlur={e => {
                         if (activeSessionId) updateSession(activeSessionId, { system_prompt: e.target.value }).catch(console.error)
                     }}
-                    rows={4}
+                    rows={3}
                 />
             </div>
 
-            <div className="drawer-section">
-                <div className="drawer-label">Max Tokens <span>{params.max_tokens}</span></div>
-                <div className="range-container">
+            {/* ── Generation Card ── */}
+            <div className="drawer-section-title">Generation</div>
+            <div className="drawer-card">
+                <div className="drawer-card-row">
+                    <span className="drawer-card-label">Max Tokens</span>
+                    <span className="drawer-card-value">{params.max_tokens.toLocaleString()}</span>
+                </div>
+                <div className="drawer-card-slider">
                     <input type="range" min={256} max={128000} step={256} value={params.max_tokens} onChange={e => setParams({ max_tokens: +e.target.value })} />
-                    <div className="param-row"><span>256</span><span>128000</span></div>
                 </div>
-            </div>
+                <div className="drawer-card-divider" />
 
-            <div className="drawer-section">
-                <div className="drawer-label">Temperature <span>{params.temperature.toFixed(2)}</span></div>
-                <div className="range-container">
+                <div className="drawer-card-row">
+                    <span className="drawer-card-label">Temperature</span>
+                    <span className="drawer-card-value">{params.temperature.toFixed(2)}</span>
+                </div>
+                <div className="drawer-card-slider">
                     <input type="range" min={0} max={2} step={0.05} value={params.temperature} onChange={e => setParams({ temperature: +e.target.value })} />
-                    <div className="param-row"><span>精确</span><span>发散</span></div>
                 </div>
-            </div>
+                <div className="drawer-card-divider" />
 
-            <div className="drawer-section">
-                <div className="drawer-label">Top P <span>{params.top_p.toFixed(2)}</span></div>
-                <div className="range-container">
+                <div className="drawer-card-row">
+                    <span className="drawer-card-label">Top P</span>
+                    <span className="drawer-card-value">{params.top_p.toFixed(2)}</span>
+                </div>
+                <div className="drawer-card-slider">
                     <input type="range" min={0} max={1} step={0.05} value={params.top_p} onChange={e => setParams({ top_p: +e.target.value })} />
-                    <div className="param-row"><span>0</span><span>1</span></div>
                 </div>
-            </div>
+                <div className="drawer-card-divider" />
 
-            <div className="drawer-section">
-                <div className="drawer-label">Freq. Penalty <span>{params.frequency_penalty.toFixed(2)}</span></div>
-                <div className="range-container">
+                <div className="drawer-card-row">
+                    <span className="drawer-card-label">Freq. Penalty</span>
+                    <span className="drawer-card-value">{params.frequency_penalty.toFixed(2)}</span>
+                </div>
+                <div className="drawer-card-slider">
                     <input type="range" min={0} max={2} step={0.05} value={params.frequency_penalty} onChange={e => setParams({ frequency_penalty: +e.target.value })} />
-                    <div className="param-row"><span>0</span><span>2</span></div>
                 </div>
             </div>
 
-            <div className="drawer-section">
-                <div className="drawer-label">上下文策略</div>
-                <div className="strategy-tabs">
-                    <button className={`strategy-tab ${params.context_strategy === 'rounds' ? 'active' : ''}`} onClick={() => setParams({ context_strategy: 'rounds' })}>按轮次</button>
-                    <button className={`strategy-tab ${params.context_strategy === 'tokens' ? 'active' : ''}`} onClick={() => setParams({ context_strategy: 'tokens' })}>按 Token</button>
+            {/* ── Context Card ── */}
+            <div className="drawer-section-title">Context</div>
+            <div className="drawer-card">
+                <div className="drawer-card-row">
+                    <span className="drawer-card-label">Strategy</span>
+                    <div className="drawer-segmented">
+                        <button className={`drawer-seg-btn ${params.context_strategy === 'rounds' ? 'active' : ''}`} onClick={() => setParams({ context_strategy: 'rounds' })}>Rounds</button>
+                        <button className={`drawer-seg-btn ${params.context_strategy === 'tokens' ? 'active' : ''}`} onClick={() => setParams({ context_strategy: 'tokens' })}>Tokens</button>
+                    </div>
                 </div>
-                <div style={{ height: 8 }} />
+                <div className="drawer-card-divider" />
                 {params.context_strategy === 'rounds' ? (
                     <>
-                        <div className="drawer-label">保留轮数 <span>{params.context_rounds}</span></div>
-                        <div className="range-container">
+                        <div className="drawer-card-row">
+                            <span className="drawer-card-label">Keep Rounds</span>
+                            <span className="drawer-card-value">{params.context_rounds}</span>
+                        </div>
+                        <div className="drawer-card-slider">
                             <input type="range" min={1} max={50} step={1} value={params.context_rounds} onChange={e => setParams({ context_rounds: +e.target.value })} />
-                            <div className="param-row"><span>1</span><span>50</span></div>
                         </div>
                     </>
                 ) : (
-                    <>
-                        <div className="drawer-label">Token 阈值</div>
-                        <input type="number" className="form-input" value={params.context_token_threshold} min={1000} max={200000} step={1000} onChange={e => setParams({ context_token_threshold: +e.target.value })} />
-                    </>
+                    <div className="drawer-card-row">
+                        <span className="drawer-card-label">Threshold</span>
+                        <input type="number" className="drawer-card-input" value={params.context_token_threshold} min={1000} max={200000} step={1000} onChange={e => setParams({ context_token_threshold: +e.target.value })} />
+                    </div>
                 )}
             </div>
         </div>

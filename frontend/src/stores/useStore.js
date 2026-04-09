@@ -164,6 +164,10 @@ const useStore = create((set, get) => ({
     lastUsage: null,
     setLastUsage: (usage) => set({ lastUsage: usage }),
 
+    // ═══ Observer Memory 状态 ═══
+    observerMemoryInfo: null,
+    setObserverMemoryInfo: (info) => set({ observerMemoryInfo: info }),
+
     // ═══ 编辑消息 ═══
     editingText: null,
     setEditingText: (t) => set({ editingText: t }),
@@ -246,6 +250,7 @@ const useStore = create((set, get) => ({
                 agentTurns: 0,
                 waitingToolConfirm: false,
                 pendingToolCall: null,
+                observerMemoryInfo: null,
             })
 
             // 加载 Agent Loop 活动历史

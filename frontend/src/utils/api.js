@@ -143,7 +143,7 @@ export async function uploadFile(file) {
 
 // ═══ Direct Chat SSE Stream ═══
 
-export function streamChat(payload, { onDelta, onStatus, onUsage, onFinish, onError }) {
+export function streamChat(payload, { onDelta, onStatus, onUsage, onObserverMemory, onFinish, onError }) {
     const controller = new AbortController()
     const token = getToken()
     const headers = { 'Content-Type': 'application/json' }
@@ -190,6 +190,7 @@ export function streamChat(payload, { onDelta, onStatus, onUsage, onFinish, onEr
                         const parsed = JSON.parse(raw)
                         if (parsed.error) { onError(parsed.error); return }
                         if (parsed.status && onStatus) onStatus(parsed.status)
+                        if (parsed.observer_memory && onObserverMemory) onObserverMemory(parsed.observer_memory)
                         if (parsed.delta !== undefined) onDelta(parsed.delta)
                         if (parsed.usage) onUsage(parsed.usage)
                     } catch (e) {

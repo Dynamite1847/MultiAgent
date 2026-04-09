@@ -333,3 +333,35 @@ def get_agent_activity(session_id: str, user_id: str = "default") -> list:
         return []
     return session.get("agent_history", [])
 
+
+# ═══════════════════════════════════════
+# Observer Memory 持久化
+# ═══════════════════════════════════════
+
+def save_observer_summary(session_id: str, summary: dict, user_id: str = "default") -> bool:
+    """保存 Observer Memory 摘要到 session（独立字段，不影响 messages）。
+
+    summary: {
+        content: str,             摘要文本
+        compressed_up_to: int,    已压缩到第几条消息
+        message_count: int,       压缩时的总消息数
+        created_at: str,          创建时间
+        version: int,             版本号（每次压缩递增）
+    }
+    """
+    session = get_session(session_id, user_id)
+    if not session:
+        return False
+    session["observer_summary"] = summary
+    session["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_session(session, user_id)
+    return True
+
+
+def get_observer_summary(session_id: str, user_id: str = "default") -> dict | None:
+    """读取 session 的 Observer Memory 摘要。"""
+    session = get_session(session_id, user_id)
+    if not session:
+        return None
+    return session.get("observer_summary")
+

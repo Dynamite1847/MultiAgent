@@ -8,7 +8,7 @@ def get_provider(provider_name: str, provider_config: dict) -> BaseProvider:
     api_key = provider_config.get("api_key", "")
     base_url = provider_config.get("base_url", "")
 
-    if provider_name == "anthropic":
+    if provider_name == "anthropic" or provider_name == "anthropic1":
         return OpenAIProvider(
             api_key=api_key,
             base_url=base_url or "https://api.anthropic.com/v1"
