@@ -126,7 +126,8 @@ cd frontend && npm install && cd ..
 cp .env.example .env
 ```
 
-编辑 `.env` 文件，填入你的 API Key：
+编辑 `.env` 文件，填入你的 API Key。`.env` 只用于本地运行，已被 `.gitignore` 忽略，不要提交真实密钥。
+
 ```env
 DASHSCOPE_API_KEY=sk-xxx        # 阿里百炼（推荐，一个 Key 可用多个模型）
 TAVILY_API_KEY=tvly-xxx          # Tavily 搜索（Agent 联网搜索需要）
@@ -134,7 +135,10 @@ TAVILY_API_KEY=tvly-xxx          # Tavily 搜索（Agent 联网搜索需要）
 ANTHROPIC_API_KEY=sk-xxx
 DEEPSEEK_API_KEY=sk-xxx
 DOUBAO_API_KEY=xxx
+MIMO_API_KEY=xxx
 ```
+
+配置页保存时会自动剔除 `api_key` 字段，`config.yaml` 只保存 provider、base_url、models 等非密钥配置。若使用 `python -m core.secure_env encrypt` 生成设备绑定的 `.env.enc`，该文件也不会提交到 Git。
 
 ### 3. 一键启动
 

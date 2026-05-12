@@ -954,6 +954,7 @@ textarea, .form-textarea { resize: vertical; }
 .provider-dot.openai { background: #10a37f; }
 .provider-dot.doubao { background: #5a67d8; }
 .provider-dot.dashscope { background: #ff6a00; }
+.provider-dot.mimo { background: #ff6900; }
 
 .modal-row.full > div { width: 100%; }
 .modal-label { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; letter-spacing: -0.12px; }

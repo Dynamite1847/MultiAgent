@@ -67,7 +67,8 @@ export default function ParamDrawer() {
                                     p === 'google' ? 'Google (Gemini)' :
                                         p === 'doubao' ? 'Doubao (火山引擎)' :
                                             p === 'dashscope' ? 'DashScope (百炼)' :
-                                                p === 'openai' ? 'DeepSeek / OpenAI' : p
+                                                p === 'mimo' ? 'Xiaomi (MiMo)' :
+                                                    p === 'openai' ? 'DeepSeek / OpenAI' : p
                             }</option>
                         ))}
                     </select>

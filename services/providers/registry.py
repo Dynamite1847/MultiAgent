@@ -30,10 +30,15 @@ def get_provider(provider_name: str, provider_config: dict) -> BaseProvider:
             api_key=api_key,
             base_url=base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
-    elif provider_name == "xiaomi":
+    elif provider_name == "gpt":
         return OpenAIProvider(
             api_key=api_key,
             base_url=base_url or "https://api.xiaomimimo.com/v1"
+        )
+    elif provider_name == "mimo":
+        return OpenAIProvider(
+            api_key=api_key,
+            base_url=base_url or "https://token-plan-cn.xiaomimimo.com/v1"
         )
     else:
         raise ValueError(f"Unknown provider: {provider_name}")

@@ -56,6 +56,16 @@ def _search_in_dir(directory: Path, session_id: str) -> Optional[Path]:
     matches = list(directory.glob(f"*_{session_id}.json"))
     if matches:
         return matches[0]
+    # 手动复制/重命名的会话文件可能不再符合「标题_uuid.json」命名规则。
+    # 列表接口仍能读到这些文件，但详情接口按文件名查找会失败；这里兜底检查 JSON 内部 id。
+    for path in directory.glob("*.json"):
+        try:
+            with open(path, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+            if data.get("id") == session_id:
+                return path
+        except Exception:
+            continue
     return None
 
 
@@ -364,4 +374,3 @@ def get_observer_summary(session_id: str, user_id: str = "default") -> dict | No
     if not session:
         return None
     return session.get("observer_summary")
-

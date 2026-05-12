@@ -8,7 +8,13 @@ import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+from core.secure_env import load_encrypted_env
+
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv()
+else:
+    load_encrypted_env()
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 

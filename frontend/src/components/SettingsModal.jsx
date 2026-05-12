@@ -38,7 +38,8 @@ export default function SettingsModal() {
         google: { icon: '◈', name: 'Google (Gemini)', color: 'google' },
         openai: { icon: '○', name: 'OpenAI / 兼容接口', color: 'openai' },
         doubao: { icon: '☁️', name: 'Doubao (火山引擎)', color: 'doubao' },
-        dashscope: { icon: '🔮', name: 'DashScope (百炼)', color: 'dashscope' }
+        dashscope: { icon: '🔮', name: 'DashScope (百炼)', color: 'dashscope' },
+        mimo: { icon: '📱', name: 'Xiaomi (MiMo)', color: 'mimo' }
     }
 
     return (

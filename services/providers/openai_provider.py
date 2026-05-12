@@ -58,10 +58,16 @@ class OpenAIProvider(BaseProvider):
             "frequency_penalty": kwargs.get("frequency_penalty", 0.0),
             "stream": True,
         }
-        
-        # Volcengine/Doubao specific parameters
+
+        # Build extra_body: start with caller-provided, then layer on provider-specific
+        extra_body = dict(kwargs.get("extra_body") or {})
+
+        # Volcengine/Doubao specific: enable thinking by default
         if "ark.cn-beijing.volces.com" in str(self.client.base_url):
-            completion_kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
+            extra_body.setdefault("thinking", {"type": "enabled"})
+
+        if extra_body:
+            completion_kwargs["extra_body"] = extra_body
 
         stream = await self.client.chat.completions.create(**completion_kwargs)
         is_thinking = False

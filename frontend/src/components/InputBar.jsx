@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import useStore from '../stores/useStore'
-import { uploadFile, streamChat, streamAgentChat, countTokens, fetchSession, fetchSessions } from '../utils/api'
+import { uploadFile, streamChat, streamAgentChat, countTokens, fetchSession, fetchSessions, confirmToolCall } from '../utils/api'
 
 export default function InputBar() {
     const {
@@ -17,6 +17,7 @@ export default function InputBar() {
         plan, workflowSteps,
         waitingAnswer,
         setObserverMemoryInfo,
+        waitingToolConfirm, pendingToolCall,
     } = useStore()
 
     const [text, setText] = useState('')
@@ -87,6 +88,15 @@ export default function InputBar() {
             } finally {
                 setUploading(prev => prev - 1)
             }
+        }
+    }
+
+    const handleToolConfirm = async (approved) => {
+        try {
+            await confirmToolCall(activeSessionId || '', approved)
+            useStore.setState({ waitingToolConfirm: false, pendingToolCall: null })
+        } catch (e) {
+            addToast('确认失败: ' + e.message, 'error')
         }
     }
 
@@ -289,6 +299,7 @@ export default function InputBar() {
             setIsStreaming(activeSessionId, false)
             setStreamingText(activeSessionId, '')
             setIsThinking(activeSessionId, false)
+            useStore.setState({ agentThinking: '', waitingToolConfirm: false, pendingToolCall: null })
         }
     }
 
@@ -300,6 +311,29 @@ export default function InputBar() {
             onDrop={handleDrop}
             onDragOver={e => e.preventDefault()}
         >
+            {/* 工具调用确认框（保证任意状态下都可见） */}
+            {waitingToolConfirm && pendingToolCall && (
+                <div className="tool-confirm-dialog" style={{ marginBottom: '10px' }}>
+                    <div className="tool-confirm-icon">⚠️</div>
+                    <div className="tool-confirm-info">
+                        <div className="tool-confirm-title">
+                            Agent 想要执行 <strong>{pendingToolCall.name}</strong>
+                        </div>
+                        <pre className="tool-confirm-args" style={{ maxHeight: '100px', overflow: 'auto' }}>
+                            {JSON.stringify(pendingToolCall.arguments, null, 2)}
+                        </pre>
+                    </div>
+                    <div className="tool-confirm-actions">
+                        <button className="btn-confirm-approve" onClick={() => handleToolConfirm(true)}>
+                            ✅ 允许
+                        </button>
+                        <button className="btn-confirm-reject" onClick={() => handleToolConfirm(false)}>
+                            ❌ 拒绝
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* 等待回答提示 */}
             {waitingAnswer && (
                 <div className="answer-hint">
@@ -341,7 +375,7 @@ export default function InputBar() {
                 <button
                     className="upload-btn"
                     onClick={() => fileInputRef.current?.click()}
-                    title="上传文件（图片/PDF/Word/Excel/md/TXT）"
+                    title="上传文件（图片/PDF/Word/Excel/PPT/HTML/CSV/JSON/音频/EPub/ZIP 等）"
                     disabled={uploading > 0}
                 >⊕</button>
 
@@ -375,7 +409,7 @@ export default function InputBar() {
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept="image/*,.pdf,.txt,.docx,.doc,.xlsx,.xls,.md"
+                accept="image/*,.pdf,.txt,.docx,.doc,.xlsx,.xls,.md,.pptx,.ppt,.html,.htm,.csv,.json,.xml,.epub,.zip,.mp3,.wav,.msg,.eml"
                 style={{ display: 'none' }}
                 onChange={e => handleFileSelect(e.target.files)}
             />

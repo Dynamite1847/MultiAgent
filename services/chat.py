@@ -29,10 +29,10 @@ async def generate_title(session_id: str, user_text: str, assistant_text: str, u
             logger.info("No openai/deepseek provider configured, skipping auto-title.")
             return
 
-        ds_model = (ds_cfg.get("models") or ["deepseek-chat"])[0]
-        # If the model is a reasoner model, use deepseek-chat instead (cheaper/faster for titles)
-        if "reasoner" in ds_model:
-            ds_model = "deepseek-chat"
+        # Always use deepseek-v4-flash for title generation:
+        # - Much cheaper than deepseek-v4-pro
+        # - Does NOT trigger thinking mode (which pollutes title output)
+        ds_model = "deepseek-v4-flash"
 
         provider = get_provider("openai", ds_cfg)
 
@@ -51,6 +51,7 @@ async def generate_title(session_id: str, user_text: str, assistant_text: str, u
             max_tokens=30,
             temperature=0.3,
             top_p=1.0,
+            extra_body={"thinking": {"type": "disabled"}},
         ):
             delta = chunk.get("delta", "")
             if delta:

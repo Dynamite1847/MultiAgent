@@ -32,7 +32,7 @@ class WebSearchTool(BaseTool):
         "max_results": {
             "type": "integer",
             "description": "每个关键词返回的最大结果数。",
-            "default": 5,
+            "default": 15,
         },
     }
 
@@ -43,7 +43,7 @@ class WebSearchTool(BaseTool):
         """
         self._tavily = tavily_client
 
-    def execute(self, queries: list[str], search_depth: str = "basic", max_results: int = 5) -> str:
+    def execute(self, queries: list[str], search_depth: str = "basic", max_results: int = 15) -> str:
         if not queries:
             return "错误：请提供至少一个搜索关键词"
 
